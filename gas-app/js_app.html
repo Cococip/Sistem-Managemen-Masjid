@@ -1,0 +1,201 @@
+<script>
+  var PAGE_RENDERERS = {};
+  var CURRENT_USER = null;
+
+  var NAV_STRUCTURE = [
+    { section: null, items: [{ key: 'dashboard', label: 'Dashboard', icon: 'bi-speedometer2', module: 'dashboard' }] },
+    { section: 'Keuangan', items: [
+      { key: 'finance-dashboard', label: 'Dashboard Keuangan', icon: 'bi-graph-up-arrow', module: 'finance' },
+      { key: 'income', label: 'Pemasukan', icon: 'bi-arrow-down-circle', module: 'finance' },
+      { key: 'expense', label: 'Pengeluaran', icon: 'bi-arrow-up-circle', module: 'finance' },
+      { key: 'transactions', label: 'Transaksi', icon: 'bi-list-columns-reverse', module: 'finance' },
+      { key: 'categories', label: 'Kategori', icon: 'bi-tags', module: 'finance' },
+      { key: 'fund-sources', label: 'Sumber Dana', icon: 'bi-piggy-bank', module: 'finance' },
+      { key: 'reports', label: 'Laporan', icon: 'bi-file-earmark-bar-graph', module: 'finance' },
+      { key: 'transparency-admin', label: 'Transparansi', icon: 'bi-eye', module: 'finance' }
+    ]},
+    { section: 'Kegiatan', items: [
+      { key: 'announcements', label: 'Pengumuman', icon: 'bi-megaphone', module: 'announcement' },
+      { key: 'events', label: 'Agenda', icon: 'bi-calendar-event', module: 'event' },
+      { key: 'prayer', label: 'Jadwal Shalat', icon: 'bi-clock-history', module: 'prayer' },
+      { key: 'imam', label: 'Imam & Khatib', icon: 'bi-person-badge', module: 'imam' }
+    ]},
+    { section: 'Masjid', items: [
+      { key: 'jamaah', label: 'Jamaah', icon: 'bi-people', module: 'jamaah' },
+      { key: 'inventory', label: 'Inventaris', icon: 'bi-box-seam', module: 'inventory' },
+      { key: 'social', label: 'Program Sosial', icon: 'bi-hand-holding-heart', module: 'social_program' },
+      { key: 'donation', label: 'Donasi', icon: 'bi-heart', module: 'donation' },
+      { key: 'documents', label: 'Dokumentasi', icon: 'bi-folder2-open', module: 'documents' }
+    ]},
+    { section: 'Display', items: [
+      { key: 'signage', label: 'Digital Signage', icon: 'bi-tv', module: 'display' },
+      { key: 'playlist', label: 'Playlist', icon: 'bi-collection-play', module: 'display' },
+      { key: 'display-settings', label: 'Display Settings', icon: 'bi-sliders', module: 'display' }
+    ]},
+    { section: 'Sistem', items: [
+      { key: 'users', label: 'Users', icon: 'bi-person-gear', module: 'users' },
+      { key: 'audit', label: 'Audit Log', icon: 'bi-journal-text', module: 'audit' },
+      { key: 'settings', label: 'Settings', icon: 'bi-gear', module: 'settings' }
+    ]}
+  ];
+
+  function canSeeModule(user, moduleKey) {
+    if (moduleKey === 'dashboard') return true;
+    if (user.role_id === 'SUPER_ADMIN') return true;
+    var map = {
+      finance: ['TREASURER'], announcement: ['ADMIN', 'OPERATOR'], event: ['ADMIN', 'OPERATOR'],
+      prayer: ['ADMIN', 'OPERATOR'], imam: ['ADMIN', 'OPERATOR'], inventory: ['ADMIN'], jamaah: ['ADMIN'],
+      donation: ['ADMIN', 'TREASURER'], social_program: ['ADMIN'], documents: ['ADMIN'], display: ['ADMIN', 'OPERATOR'],
+      users: [], audit: [], settings: ['ADMIN']
+    };
+    return (map[moduleKey] || []).indexOf(user.role_id) !== -1;
+  }
+
+  function buildSidebar(user) {
+    var html = '<div class="mms-sidebar-brand"><img id="sbLogo" src="https://api.iconify.design/mdi/mosque.svg?color=%23ffffff" alt="logo">' +
+      '<div><div class="name" id="sbMosqueName">Masjid Management System</div><div class="tagline">Panel Pengurus</div></div></div>';
+    html += '<nav class="mms-nav">';
+    NAV_STRUCTURE.forEach(function (group) {
+      var visibleItems = group.items.filter(function (item) { return canSeeModule(user, item.module); });
+      if (visibleItems.length === 0) return;
+      if (group.section) html += '<div class="mms-nav-section">' + group.section + '</div>';
+      visibleItems.forEach(function (item) {
+        html += '<div class="mms-nav-link" data-page="' + item.key + '" id="nav_' + item.key + '"><i class="bi ' + item.icon + '"></i>' + item.label + '</div>';
+      });
+    });
+    html += '</nav>';
+    html += '<div class="mms-sidebar-footer">Masjid Management System<br>v1.0 &middot; Google Apps Script</div>';
+    document.getElementById('sidebarContent').innerHTML = html;
+
+    document.querySelectorAll('.mms-nav-link').forEach(function (link) {
+      link.addEventListener('click', function () {
+        navigateTo(link.getAttribute('data-page'));
+        document.getElementById('sidebar').classList.remove('open');
+        document.getElementById('sidebarBackdrop').classList.remove('show');
+      });
+    });
+  }
+
+  var PAGE_TITLES = {};
+  NAV_STRUCTURE.forEach(function (g) { g.items.forEach(function (i) { PAGE_TITLES[i.key] = i.label; }); });
+
+  function navigateTo(pageKey) {
+    if (window.__mmsPageInterval) { clearInterval(window.__mmsPageInterval); window.__mmsPageInterval = null; }
+    if (!PAGE_RENDERERS[pageKey]) pageKey = 'dashboard';
+    document.querySelectorAll('.mms-nav-link').forEach(function (l) { l.classList.remove('active'); });
+    var activeLink = document.getElementById('nav_' + pageKey);
+    if (activeLink) activeLink.classList.add('active');
+    document.title = (PAGE_TITLES[pageKey] || 'Dashboard') + ' — Masjid Management System';
+    window.location.hash = pageKey;
+    var content = document.getElementById('pageContent');
+    content.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-success"></div></div>';
+    PAGE_RENDERERS[pageKey]('pageContent');
+  }
+
+  function initTopbar(user) {
+    document.getElementById('greetName').textContent = "Assalamu'alaikum, " + user.name;
+    document.getElementById('greetRole').textContent = (user.role_name || user.role_id) + ' · ' + todayFullDateText();
+    document.getElementById('avatarInitial').textContent = (user.name || '?').charAt(0).toUpperCase();
+
+    document.getElementById('burgerBtn').addEventListener('click', function () {
+      document.getElementById('sidebar').classList.toggle('open');
+      document.getElementById('sidebarBackdrop').classList.toggle('show');
+    });
+    document.getElementById('sidebarBackdrop').addEventListener('click', function () {
+      document.getElementById('sidebar').classList.remove('open');
+      document.getElementById('sidebarBackdrop').classList.remove('show');
+    });
+    document.getElementById('logoutBtn').addEventListener('click', function () {
+      confirmAction('Apakah Anda yakin ingin keluar?', doLogout, { okLabel: 'Keluar', okClass: 'btn-danger' });
+    });
+    document.getElementById('openDisplayBtn').addEventListener('click', function () {
+      window.open(WEB_APP_URL + '?page=display', '_blank');
+    });
+  }
+
+  function todayFullDateText() {
+    var d = new Date();
+    return MMS_HARI[d.getDay()] + ', ' + d.getDate() + ' ' + MMS_BULAN[d.getMonth()] + ' ' + d.getFullYear();
+  }
+
+  function initAdminApp(user) {
+    CURRENT_USER = user;
+    buildSidebar(user);
+    initTopbar(user);
+    apiGet('getPublicSettings', {}, { silent: true, silentError: true }).then(function (s) {
+      if (s.mosque_name) document.getElementById('sbMosqueName').textContent = s.mosque_name;
+      if (s.logo_url) document.getElementById('sbLogo').src = s.logo_url;
+    }).catch(function () {});
+
+    var initialPage = (window.location.hash || '#dashboard').replace('#', '');
+    navigateTo(initialPage);
+  }
+
+  // ================== DASHBOARD PAGE ==================
+  PAGE_RENDERERS['dashboard'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML =
+      '<div class="mms-page-title">Dashboard</div>' +
+      '<div class="mms-page-subtitle">Ringkasan aktivitas dan keuangan masjid</div>' +
+      '<div class="row g-3" id="dashStatCards"></div>' +
+      '<div class="row g-3 mt-1">' +
+      '<div class="col-lg-6"><div class="card-soft p-3 h-100"><h6 class="fw-bold mb-3"><i class="bi bi-megaphone me-1 text-primary-c"></i>Pengumuman Aktif</h6><div id="dashAnnouncements"></div></div></div>' +
+      '<div class="col-lg-6"><div class="card-soft p-3 h-100"><h6 class="fw-bold mb-3"><i class="bi bi-calendar-event me-1 text-primary-c"></i>Agenda Mendatang</h6><div id="dashEvents"></div></div></div>' +
+      '</div>' +
+      '<div class="card-soft p-3 mt-3"><h6 class="fw-bold mb-3">Aksi Cepat</h6><div class="d-flex flex-wrap gap-2" id="dashQuickActions"></div></div>';
+
+    document.getElementById('dashStatCards').innerHTML = skeletonCards(4);
+
+    apiGet('getDashboardSummary', {}, { silent: true }).then(function (d) {
+      var cardDefs = [
+        { label: 'Saldo Kas', value: formatRupiah(d.saldo), icon: 'bi-wallet2', color: 'primary' },
+        { label: 'Total Pemasukan', value: formatRupiah(d.totalIncome), icon: 'bi-arrow-down-circle', color: 'success' },
+        { label: 'Total Pengeluaran', value: formatRupiah(d.totalExpense), icon: 'bi-arrow-up-circle', color: 'danger' },
+        { label: 'Surplus / Defisit', value: formatRupiah(d.totalIncome - d.totalExpense), icon: 'bi-graph-up', color: d.totalIncome >= d.totalExpense ? 'success' : 'danger' }
+      ];
+      document.getElementById('dashStatCards').innerHTML = cardDefs.map(statCardHtml).join('') +
+        '<div class="col-md-3"><div class="card-soft mms-stat-card"><div class="d-flex justify-content-between align-items-start">' +
+        '<div><div class="label">Jumlah Inventaris</div><div class="value">' + d.inventoryCount + '</div></div>' +
+        '<div class="icon-wrap" style="background:var(--info-light);color:var(--info)"><i class="bi bi-box-seam"></i></div></div></div></div>' +
+        '<div class="col-md-3"><div class="card-soft mms-stat-card"><div class="d-flex justify-content-between align-items-start">' +
+        '<div><div class="label">Jumlah Jamaah</div><div class="value">' + d.jamaahCount + '</div></div>' +
+        '<div class="icon-wrap" style="background:var(--warning-light);color:var(--warning)"><i class="bi bi-people"></i></div></div></div></div>';
+
+      var annEl = document.getElementById('dashAnnouncements');
+      annEl.innerHTML = d.recentAnnouncements.length ? d.recentAnnouncements.map(function (a) {
+        return '<div class="d-flex justify-content-between align-items-start border-bottom py-2"><div><div class="fw-semibold">' + escapeHtml(a.title) + '</div>' +
+          '<div class="text-muted-c small">' + escapeHtml(a.category) + ' &middot; ' + formatDateId(a.start_date) + '</div></div>' +
+          (a.is_pinned ? '<span class="badge-soft badge-warning">Pinned</span>' : '') + '</div>';
+      }).join('') : emptyStateHtml('Belum ada pengumuman aktif');
+
+      var evEl = document.getElementById('dashEvents');
+      evEl.innerHTML = d.upcomingEvents.length ? d.upcomingEvents.map(function (e) {
+        return '<div class="d-flex justify-content-between align-items-start border-bottom py-2"><div><div class="fw-semibold">' + escapeHtml(e.title) + '</div>' +
+          '<div class="text-muted-c small">' + escapeHtml(e.category) + ' &middot; ' + formatDateId(e.date) + ' ' + escapeHtml(e.start_time || '') + '</div></div></div>';
+      }).join('') : emptyStateHtml('Belum ada agenda mendatang');
+
+      document.getElementById('dashQuickActions').innerHTML = [
+        { label: 'Pemasukan', page: 'income', icon: 'bi-arrow-down-circle' },
+        { label: 'Pengeluaran', page: 'expense', icon: 'bi-arrow-up-circle' },
+        { label: 'Pengumuman', page: 'announcements', icon: 'bi-megaphone' },
+        { label: 'Agenda', page: 'events', icon: 'bi-calendar-event' },
+        { label: 'Donasi', page: 'donation', icon: 'bi-heart' }
+      ].map(function (q) {
+        return '<button class="btn btn-outline-mms" onclick="navigateTo(\'' + q.page + '\')"><i class="bi ' + q.icon + ' me-1"></i>' + q.label + '</button>';
+      }).join('');
+    });
+  };
+
+  function statCardHtml(c) {
+    return '<div class="col-md-3"><div class="card-soft mms-stat-card"><div class="d-flex justify-content-between align-items-start">' +
+      '<div><div class="label">' + c.label + '</div><div class="value">' + c.value + '</div></div>' +
+      '<div class="icon-wrap" style="background:var(--' + c.color + '-light);color:var(--' + c.color + ')"><i class="bi ' + c.icon + '"></i></div>' +
+      '</div></div></div>';
+  }
+
+  function skeletonCards(n) {
+    var html = '';
+    for (var i = 0; i < n; i++) html += '<div class="col-md-3"><div class="card-soft mms-stat-card"><div class="skeleton" style="height:40px"></div></div></div>';
+    return html;
+  }
+</script>

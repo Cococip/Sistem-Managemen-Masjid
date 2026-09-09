@@ -1,0 +1,53 @@
+<style>
+  .pub-navbar { background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 1030; }
+  .pub-navbar .navbar-brand { font-weight: 800; color: var(--secondary); display: flex; align-items: center; gap: .55rem; }
+  .pub-navbar .navbar-brand img { width: 36px; height: 36px; border-radius: 8px; }
+  .pub-nav-link { font-weight: 600; color: var(--text); padding: .5rem .9rem !important; border-radius: var(--radius-sm); font-size: .92rem; }
+  .pub-nav-link.active, .pub-nav-link:hover { color: var(--primary); background: var(--primary-light); }
+
+  .pub-hero {
+    background: linear-gradient(135deg, var(--secondary) 0%, var(--primary-dark) 100%);
+    color: #fff; padding: 4.5rem 1rem 5rem; text-align: center; position: relative; overflow: hidden;
+  }
+  .pub-hero::after {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(circle at 80% 20%, rgba(201,162,39,0.18), transparent 55%);
+  }
+  .pub-hero h1 { font-weight: 800; font-size: 2.6rem; position: relative; }
+  .pub-hero p { opacity: .9; font-size: 1.1rem; max-width: 640px; margin: .75rem auto 0; position: relative; }
+
+  .pub-section { padding: 3rem 0; }
+  .pub-section-title { font-weight: 800; font-size: 1.6rem; margin-bottom: .25rem; }
+  .pub-section-sub { color: var(--muted); margin-bottom: 1.75rem; }
+
+  .pub-clock-card {
+    background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow);
+    padding: 1.75rem; margin-top: -3.25rem; position: relative; z-index: 5;
+  }
+  .pub-clock-time { font-size: 2.6rem; font-weight: 800; color: var(--secondary); font-variant-numeric: tabular-nums; }
+  .pub-clock-date { color: var(--muted); }
+
+  .pub-prayer-pill {
+    background: var(--primary-light); border-radius: var(--radius); padding: .9rem; text-align: center;
+  }
+  .pub-prayer-pill.active { background: var(--primary); color: #fff; }
+  .pub-prayer-pill .name { font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+  .pub-prayer-pill .time { font-size: 1.3rem; font-weight: 800; margin-top: .15rem; }
+
+  .pub-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: 1.4rem; height: 100%; }
+  .pub-card:hover { box-shadow: var(--shadow); }
+
+  .pub-donation-progress { height: 12px; border-radius: 999px; background: var(--primary-light); overflow: hidden; }
+  .pub-donation-fill { height: 100%; background: linear-gradient(90deg, var(--primary), var(--accent)); border-radius: 999px; }
+
+  .pub-footer { background: var(--secondary); color: #d9f2e2; padding: 2.5rem 0 1.25rem; margin-top: 2rem; }
+  .pub-footer a { color: #d9f2e2; }
+  .pub-footer h6 { color: #fff; font-weight: 700; }
+
+  .pub-transparansi-balance { font-size: 2.2rem; font-weight: 800; }
+
+  @media (max-width: 767.98px) {
+    .pub-hero h1 { font-size: 1.9rem; }
+    .pub-clock-time { font-size: 2rem; }
+  }
+</style>

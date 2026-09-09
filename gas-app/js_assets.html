@@ -1,0 +1,151 @@
+<script>
+  // ================== INVENTARIS ==================
+  PAGE_RENDERERS['inventory'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<div id="invStats" class="row g-3 mb-3"></div><div id="invCrud"></div>';
+    apiGet('getInventoryStats', {}, { silent: true }).then(function (s) {
+      document.getElementById('invStats').innerHTML = [
+        { label: 'Total Barang', value: s.totalItems, icon: 'bi-box-seam', color: 'primary' },
+        { label: 'Total Kuantitas', value: s.total, icon: 'bi-stack', color: 'info' },
+        { label: 'Kondisi Baik', value: s.byCondition['Baik'] || 0, icon: 'bi-check-circle', color: 'success' },
+        { label: 'Rusak/Hilang', value: (s.byCondition['Rusak Ringan'] || 0) + (s.byCondition['Rusak Berat'] || 0) + (s.byCondition['Hilang'] || 0), icon: 'bi-exclamation-triangle', color: 'warning' }
+      ].map(statCardHtml).join('');
+    });
+
+    var crud = new CrudModule({
+      key: 'inventory', title: 'Inventaris Masjid', subtitle: 'Kelola aset dan perlengkapan masjid',
+      listAction: 'getInventory', createAction: 'createInventory', updateAction: 'updateInventory', deleteAction: 'deleteInventory',
+      addLabel: 'Tambah Aset', searchPlaceholder: 'Cari nama/kode aset...',
+      filters: [{ key: 'condition', label: 'Kondisi', options: ['Baik', 'Rusak Ringan', 'Rusak Berat', 'Hilang'] }],
+      columns: [
+        { key: 'asset_code', label: 'Kode' },
+        { key: 'name', label: 'Nama Barang' },
+        { key: 'category', label: 'Kategori' },
+        { key: 'quantity', label: 'Jumlah' },
+        { key: 'condition', label: 'Kondisi', render: function (r) { var m = { 'Baik': 'badge-success', 'Rusak Ringan': 'badge-warning', 'Rusak Berat': 'badge-danger', 'Hilang': 'badge-danger' }; return '<span class="badge-soft ' + (m[r.condition] || 'badge-muted') + '">' + escapeHtml(r.condition) + '</span>'; } },
+        { key: 'location', label: 'Lokasi' },
+        { key: 'purchase_price', label: 'Harga Beli', render: function (r) { return formatRupiah(r.purchase_price); } }
+      ],
+      fields: [
+        { key: 'name', label: 'Nama Barang', type: 'text', required: true, half: true },
+        { key: 'category', label: 'Kategori', type: 'text', required: true, half: true, placeholder: 'mis. Elektronik, Perlengkapan Ibadah' },
+        { key: 'quantity', label: 'Jumlah', type: 'number', required: true, half: true, default: 1 },
+        { key: 'condition', label: 'Kondisi', type: 'select', half: true, options: ['Baik', 'Rusak Ringan', 'Rusak Berat', 'Hilang'], default: 'Baik' },
+        { key: 'location', label: 'Lokasi', type: 'text', half: true },
+        { key: 'fund_source', label: 'Sumber Dana', type: 'text', half: true },
+        { key: 'purchase_date', label: 'Tanggal Beli', type: 'date', half: true },
+        { key: 'purchase_price', label: 'Harga Beli (Rp)', type: 'number', half: true },
+        { key: 'notes', label: 'Catatan', type: 'textarea' }
+      ]
+    });
+    crud.mount('invCrud');
+  };
+
+  // ================== JAMAAH ==================
+  PAGE_RENDERERS['jamaah'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<div id="jmhStats" class="row g-3 mb-3"></div><div id="jmhCrud"></div>';
+    apiGet('getJamaahStats', {}, { silent: true }).then(function (s) {
+      document.getElementById('jmhStats').innerHTML = [
+        { label: 'Total Jamaah', value: s.total, icon: 'bi-people', color: 'primary' },
+        { label: 'Laki-laki', value: s.laki, icon: 'bi-person', color: 'info' },
+        { label: 'Perempuan', value: s.perempuan, icon: 'bi-person-dress', color: 'warning' },
+        { label: 'Aktif', value: s.active, icon: 'bi-check-circle', color: 'success' }
+      ].map(statCardHtml).join('');
+    });
+
+    var crud = new CrudModule({
+      key: 'jamaah', title: 'Data Jamaah', subtitle: 'Data dasar jamaah masjid (tanpa data sensitif)',
+      listAction: 'getJamaah', createAction: 'createJamaah', updateAction: 'updateJamaah', deleteAction: 'deleteJamaah',
+      addLabel: 'Tambah Jamaah', searchPlaceholder: 'Cari nama/telepon...',
+      filters: [{ key: 'gender', label: 'Jenis Kelamin', options: [{ value: 'L', label: 'Laki-laki' }, { value: 'P', label: 'Perempuan' }] }],
+      columns: [
+        { key: 'name', label: 'Nama' },
+        { key: 'gender', label: 'JK', render: function (r) { return r.gender === 'L' ? 'Laki-laki' : 'Perempuan'; } },
+        { key: 'phone', label: 'Telepon' },
+        { key: 'address', label: 'Alamat' },
+        { key: 'status', label: 'Status', render: function (r) { return statusBadge(r.status); } }
+      ],
+      fields: [
+        { key: 'name', label: 'Nama Lengkap', type: 'text', required: true },
+        { key: 'gender', label: 'Jenis Kelamin', type: 'select', required: true, half: true, options: [{ value: 'L', label: 'Laki-laki' }, { value: 'P', label: 'Perempuan' }] },
+        { key: 'phone', label: 'Telepon', type: 'text', half: true },
+        { key: 'address', label: 'Alamat', type: 'textarea' },
+        { key: 'status', label: 'Status', type: 'select', options: ['active', 'inactive'], default: 'active' },
+        { key: 'notes', label: 'Catatan', type: 'textarea' }
+      ]
+    });
+    crud.mount('jmhCrud');
+  };
+
+  // ================== PROGRAM SOSIAL ==================
+  PAGE_RENDERERS['social'] = function (containerId) {
+    apiGet('getFundSources', {}, { silent: true }).then(function (fundSources) {
+      var crud = new CrudModule({
+        key: 'social', title: 'Program Sosial', subtitle: 'Santunan yatim, dhuafa, sembako, beasiswa, bantuan bencana, zakat, dsb',
+        listAction: 'getSocialPrograms', createAction: 'createSocialProgram', updateAction: 'updateSocialProgram', deleteAction: 'deleteSocialProgram',
+        addLabel: 'Tambah Program', searchPlaceholder: 'Cari nama program...',
+        columns: [
+          { key: 'name', label: 'Nama Program' },
+          { key: 'date', label: 'Tanggal', render: function (r) { return formatDateId(r.date); } },
+          { key: 'recipient_count', label: 'Penerima' },
+          { key: 'amount', label: 'Nominal', render: function (r) { return formatRupiah(r.amount); } },
+          { key: 'person_in_charge', label: 'Penanggung Jawab' }
+        ],
+        fields: [
+          { key: 'name', label: 'Nama Program', type: 'text', required: true },
+          { key: 'date', label: 'Tanggal', type: 'date', required: true, half: true, default: todayYmd() },
+          { key: 'recipient_count', label: 'Jumlah Penerima', type: 'number', required: true, half: true },
+          { key: 'fund_source_id', label: 'Sumber Dana', type: 'select', half: true, options: fundSources.map(function (f) { return { value: f.id, label: f.name }; }) },
+          { key: 'amount', label: 'Nominal (Rp)', type: 'number', half: true },
+          { key: 'person_in_charge', label: 'Penanggung Jawab', type: 'text' },
+          { key: 'description', label: 'Deskripsi', type: 'textarea' }
+        ]
+      });
+      crud.mount(containerId);
+    });
+  };
+
+  // ================== DOKUMENTASI ==================
+  PAGE_RENDERERS['documents'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<div class="mms-page-title">Dokumentasi</div><div class="mms-page-subtitle">File tersimpan di Google Drive, hanya metadata yang tercatat di sini</div>' +
+      '<div class="card-soft p-3 mb-3"><label class="form-label">Upload Dokumen Baru</label>' +
+      '<input type="file" class="form-control" id="docFileInput"><div class="form-text">Maks. ukuran wajar untuk Apps Script (± 45 detik proses). File akan otomatis dapat diakses lewat link.</div>' +
+      '<button class="btn btn-mms mt-2" id="docUploadBtn"><i class="bi bi-cloud-upload me-1"></i>Upload</button></div>' +
+      '<div id="docList"></div>';
+
+    document.getElementById('docUploadBtn').addEventListener('click', function () {
+      var input = document.getElementById('docFileInput');
+      if (!input.files || !input.files[0]) { toastWarning('Pilih file terlebih dahulu.'); return; }
+      var file = input.files[0];
+      var reader = new FileReader();
+      var restore = setButtonLoading(this, 'Mengunggah...');
+      reader.onload = function () {
+        var base64 = reader.result.split(',')[1];
+        apiPost('uploadDocument', { filename: file.name, mimeType: file.type || 'application/octet-stream', base64Data: base64 }, { successMessage: 'Dokumen berhasil diunggah.' })
+          .then(function () { input.value = ''; loadDocs(); }).finally(restore);
+      };
+      reader.readAsDataURL(file);
+    });
+
+    function loadDocs() {
+      var listEl = document.getElementById('docList');
+      listEl.innerHTML = '<div class="text-center py-3"><div class="spinner-border text-success"></div></div>';
+      apiGet('getDocuments', {}, { silent: true }).then(function (result) {
+        var items = result.items || [];
+        listEl.innerHTML = items.length ? '<div class="card-soft p-3"><table class="table table-mms mb-0"><thead><tr><th>Nama File</th><th>Tipe</th><th>Diunggah</th><th class="text-end">Aksi</th></tr></thead><tbody>' +
+          items.map(function (d) {
+            return '<tr><td><a href="' + d.file_url + '" target="_blank">' + escapeHtml(d.file_name) + '</a></td><td>' + escapeHtml(d.file_type) + '</td><td>' + formatDateTimeId(d.uploaded_at) + '</td>' +
+              '<td class="text-end"><button class="btn btn-sm btn-outline-danger border-0" onclick="deleteDocumentRow(\'' + d.id + '\')"><i class="bi bi-trash"></i></button></td></tr>';
+          }).join('') + '</tbody></table></div>' : emptyStateHtml('Belum ada dokumen diunggah');
+      });
+    }
+    window.deleteDocumentRow = function (id) {
+      confirmAction('Apakah Anda yakin ingin menghapus dokumen ini?', function () {
+        apiPost('deleteDocument', { id: id }, { successMessage: 'Dokumen berhasil dihapus.' }).then(loadDocs);
+      });
+    };
+    loadDocs();
+  };
+</script>

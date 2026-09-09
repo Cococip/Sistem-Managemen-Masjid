@@ -1,0 +1,240 @@
+<script>
+  /**
+   * Generic CRUD table+form engine dipakai oleh sebagian besar modul admin
+   * (Pengumuman, Agenda, Imam/Khatib, Inventaris, Jamaah, Sumber Dana, Kategori,
+   * Program Sosial, Playlist, Users, Campaign) agar konsisten: search, filter,
+   * sort, pagination, modal form, delete confirmation (lihat butir 45 & 48).
+   *
+   * Modul dengan kebutuhan khusus (Income/Expense/Transactions/Reports/Display bundle)
+   * memakai renderer kustom di file js masing-masing, tapi tetap memanggil helper yang sama
+   * (showToast, confirmAction, apiGet/apiPost) agar UX konsisten.
+   */
+
+  function CrudModule(opts) {
+    this.opts = opts;
+    this.state = { page: 1, pageSize: opts.pageSize || 10, search: '', filters: {}, sortField: opts.defaultSort || null, sortDir: 'desc' };
+    this.optionsCache = {};
+  }
+
+  CrudModule.prototype.mount = function (containerId) {
+    this.containerId = containerId;
+    this.renderShell();
+    this.loadFilterOptions().then(this.load.bind(this));
+  };
+
+  CrudModule.prototype.loadFilterOptions = function () {
+    var self = this;
+    function loadFor(f) {
+      return apiGet(f.optionsAction, f.optionsParams || {}, { silent: true }).then(function (data) {
+        var list = Array.isArray(data) ? data : (data.items || []);
+        self.optionsCache[f.key] = f.optionsMap ? list.map(f.optionsMap) : list;
+      });
+    }
+    var tasks = (this.opts.filters || []).filter(function (f) { return f.optionsAction; }).map(loadFor);
+    var fieldTasks = (this.opts.fields || []).filter(function (f) { return f.optionsAction; }).map(loadFor);
+    return Promise.all(tasks.concat(fieldTasks));
+  };
+
+  CrudModule.prototype.renderShell = function () {
+    var o = this.opts;
+    var html = '<div class="fade-in">';
+    html += '<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-1">';
+    html += '<div><div class="mms-page-title">' + escapeHtml(o.title) + '</div><div class="mms-page-subtitle">' + escapeHtml(o.subtitle || '') + '</div></div>';
+    if (o.canCreate !== false) {
+      html += '<button class="btn btn-mms" id="' + this.uid('addBtn') + '"><i class="bi bi-plus-lg me-1"></i>' + escapeHtml(o.addLabel || 'Tambah Data') + '</button>';
+    }
+    html += '</div>';
+
+    html += '<div class="card-soft p-3">';
+    html += '<div class="mms-toolbar">';
+    if (o.searchPlaceholder !== false) {
+      html += '<input type="text" class="form-control" style="max-width:260px" placeholder="' + escapeHtml(o.searchPlaceholder || 'Cari data...') + '" id="' + this.uid('search') + '">';
+    }
+    (o.filters || []).forEach((function (f) {
+      html += '<select class="form-select" style="max-width:190px" id="' + this.uid('filter_' + f.key) + '"><option value="">' + escapeHtml(f.label) + ' (Semua)</option></select>';
+    }).bind(this));
+    if (o.exportCsv) {
+      html += '<button class="btn btn-outline-mms ms-auto" id="' + this.uid('exportBtn') + '"><i class="bi bi-download me-1"></i>Export CSV</button>';
+    }
+    html += '</div>';
+
+    html += '<div class="table-responsive"><table class="table table-mms mb-0"><thead><tr>';
+    o.columns.forEach(function (c) { html += '<th>' + escapeHtml(c.label) + '</th>'; });
+    if (o.canEdit !== false || o.canDelete !== false || o.extraActions) html += '<th class="text-end">Aksi</th>';
+    html += '</tr></thead><tbody id="' + this.uid('tbody') + '"></tbody></table></div>';
+    html += '<div id="' + this.uid('pagination') + '"></div>';
+    html += '</div></div>';
+
+    document.getElementById(this.containerId).innerHTML = html;
+    this.bindShellEvents();
+  };
+
+  CrudModule.prototype.uid = function (name) { return 'crud_' + this.opts.key + '_' + name; };
+  CrudModule.prototype.el = function (name) { return document.getElementById(this.uid(name)); };
+
+  CrudModule.prototype.bindShellEvents = function () {
+    var self = this;
+    var searchEl = this.el('search');
+    if (searchEl) searchEl.addEventListener('input', debounce(function () {
+      self.state.search = searchEl.value; self.state.page = 1; self.load();
+    }, 400));
+
+    (this.opts.filters || []).forEach(function (f) {
+      var sel = self.el('filter_' + f.key);
+      var opts = f.options || self.optionsCache[f.key] || [];
+      opts.forEach(function (opt) {
+        var val = typeof opt === 'object' ? opt.value : opt;
+        var label = typeof opt === 'object' ? opt.label : opt;
+        var o = document.createElement('option'); o.value = val; o.textContent = label;
+        sel.appendChild(o);
+      });
+      sel.addEventListener('change', function () {
+        self.state.filters[f.key] = sel.value; self.state.page = 1; self.load();
+      });
+    });
+
+    var addBtn = this.el('addBtn');
+    if (addBtn) addBtn.addEventListener('click', function () { self.openForm(null); });
+
+    var exportBtn = this.el('exportBtn');
+    if (exportBtn) exportBtn.addEventListener('click', function () { self.opts.exportCsv(self); });
+
+    window['mmsCrudGoPage_' + this.opts.key] = function (page) { self.state.page = page; self.load(); };
+  };
+
+  CrudModule.prototype.load = function () {
+    var self = this;
+    var tbody = this.el('tbody');
+    tbody.innerHTML = skeletonRows(this.opts.columns.length + 1, 5);
+    var params = Object.assign({ page: this.state.page, pageSize: this.state.pageSize, search: this.state.search }, this.state.filters, this.opts.fixedParams || {});
+    return apiGet(this.opts.listAction, params, { silent: true }).then(function (result) {
+      self.lastResult = result;
+      var items = result.items || result;
+      if (self.opts.transformItems) items = self.opts.transformItems(items);
+      if (!items || items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="' + (self.opts.columns.length + 1) + '">' + emptyStateHtml(self.opts.emptyMessage || 'Belum ada data', self.opts.canCreate !== false ? (self.opts.addLabel || 'Tambah Data') : null, self.uid('emptyAddBtn')) + '</td></tr>';
+        var eb = document.getElementById(self.uid('emptyAddBtn'));
+        if (eb) eb.addEventListener('click', function () { self.openForm(null); });
+      } else {
+        tbody.innerHTML = items.map(function (row) { return self.renderRow(row); }).join('');
+        items.forEach(function (row) {
+          var editBtn = document.getElementById(self.uid('edit_' + row[self.opts.idField || 'id']));
+          if (editBtn) editBtn.addEventListener('click', function () { self.openForm(row); });
+          var delBtn = document.getElementById(self.uid('del_' + row[self.opts.idField || 'id']));
+          if (delBtn) delBtn.addEventListener('click', function () { self.deleteRow(row); });
+          if (self.opts.extraActions) {
+            self.opts.extraActions(row).forEach(function (action, idx) {
+              var btn = document.getElementById(self.uid('extra_' + idx + '_' + row[self.opts.idField || 'id']));
+              if (btn) btn.addEventListener('click', function () { action.onClick(row, self); });
+            });
+          }
+        });
+      }
+      if (result.pagination) {
+        document.getElementById(self.uid('pagination')).innerHTML = paginationHtml(result.pagination, 'mmsCrudGoPage_' + self.opts.key);
+      }
+    });
+  };
+
+  CrudModule.prototype.renderRow = function (row) {
+    var self = this;
+    var id = row[this.opts.idField || 'id'];
+    var html = '<tr>';
+    this.opts.columns.forEach(function (c) {
+      var val = c.render ? c.render(row) : escapeHtml(row[c.key]);
+      html += '<td>' + val + '</td>';
+    });
+    if (this.opts.canEdit !== false || this.opts.canDelete !== false || this.opts.extraActions) {
+      html += '<td class="text-end text-nowrap">';
+      if (this.opts.extraActions) {
+        this.opts.extraActions(row).forEach(function (action, idx) {
+          html += '<button class="btn btn-sm btn-outline-secondary border-0 me-1" title="' + escapeHtml(action.label) + '" id="' + self.uid('extra_' + idx + '_' + id) + '"><i class="bi ' + action.icon + '"></i></button>';
+        });
+      }
+      if (this.opts.canEdit !== false) html += '<button class="btn btn-sm btn-outline-secondary border-0 me-1" id="' + this.uid('edit_' + id) + '" title="Edit"><i class="bi bi-pencil"></i></button>';
+      if (this.opts.canDelete !== false) html += '<button class="btn btn-sm btn-outline-danger border-0" id="' + this.uid('del_' + id) + '" title="Hapus"><i class="bi bi-trash"></i></button>';
+      html += '</td>';
+    }
+    html += '</tr>';
+    return html;
+  };
+
+  CrudModule.prototype.deleteRow = function (row) {
+    var self = this;
+    confirmAction('Apakah Anda yakin ingin menghapus data ini?', function () {
+      apiPost(self.opts.deleteAction, { id: row[self.opts.idField || 'id'] }, { successMessage: 'Data berhasil dihapus.' })
+        .then(function () { self.load(); });
+    });
+  };
+
+  CrudModule.prototype.openForm = function (row) {
+    var self = this;
+    var isEdit = !!row;
+    var modalId = this.uid('formModal');
+    var existing = document.getElementById(modalId);
+    if (existing) existing.remove();
+
+    var fieldsHtml = this.opts.fields.map(function (f) {
+      var value = row ? row[f.key] : (f.default !== undefined ? f.default : '');
+      var id = self.uid('field_' + f.key);
+      var wrap = '<div class="mb-3' + (f.half ? ' col-md-6' : ' col-12') + '">';
+      wrap += '<label class="form-label">' + escapeHtml(f.label) + (f.required ? ' <span class="text-danger">*</span>' : '') + '</label>';
+      if (f.type === 'select') {
+        wrap += '<select class="form-select" id="' + id + '">';
+        if (!f.required) wrap += '<option value="">- Pilih -</option>';
+        var opts = f.options || self.optionsCache[f.key] || [];
+        opts.forEach(function (opt) {
+          var val = typeof opt === 'object' ? opt.value : opt;
+          var label = typeof opt === 'object' ? opt.label : opt;
+          wrap += '<option value="' + escapeHtml(val) + '" ' + (String(value) === String(val) ? 'selected' : '') + '>' + escapeHtml(label) + '</option>';
+        });
+        wrap += '</select>';
+      } else if (f.type === 'textarea') {
+        wrap += '<textarea class="form-control" id="' + id + '" rows="' + (f.rows || 3) + '">' + escapeHtml(value) + '</textarea>';
+      } else if (f.type === 'checkbox') {
+        wrap = '<div class="mb-3' + (f.half ? ' col-md-6' : ' col-12') + ' form-check pt-4">';
+        wrap += '<input type="checkbox" class="form-check-input" id="' + id + '" ' + (value ? 'checked' : '') + '>';
+        wrap += '<label class="form-check-label" for="' + id + '">' + escapeHtml(f.label) + '</label>';
+      } else {
+        wrap += '<input type="' + (f.type || 'text') + '" class="form-control" id="' + id + '" value="' + escapeHtml(value) + '" placeholder="' + escapeHtml(f.placeholder || '') + '">';
+      }
+      wrap += '</div>';
+      return wrap;
+    }).join('');
+
+    var modalHtml =
+      '<div class="modal fade" id="' + modalId + '" tabindex="-1"><div class="modal-dialog modal-dialog-centered' + (this.opts.modalSize ? ' modal-' + this.opts.modalSize : '') + '">' +
+      '<div class="modal-content"><div class="modal-header"><h5 class="modal-title">' + (isEdit ? escapeHtml(this.opts.editTitle || ('Edit ' + this.opts.title)) : escapeHtml(this.opts.addTitle || ('Tambah ' + this.opts.title))) + '</h5>' +
+      '<button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>' +
+      '<div class="modal-body"><form id="' + this.uid('form') + '"><div class="row">' + fieldsHtml + '</div></form></div>' +
+      '<div class="modal-footer"><button class="btn btn-light" data-bs-dismiss="modal">Batal</button>' +
+      '<button class="btn btn-mms" id="' + this.uid('saveBtn') + '">Simpan</button></div>' +
+      '</div></div></div>';
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    var modalEl = document.getElementById(modalId);
+    var modal = new bootstrap.Modal(modalEl);
+    modal.show();
+    modalEl.addEventListener('hidden.bs.modal', function () { modalEl.remove(); });
+
+    document.getElementById(this.uid('saveBtn')).addEventListener('click', function () {
+      var data = {};
+      var valid = true;
+      self.opts.fields.forEach(function (f) {
+        var el = document.getElementById(self.uid('field_' + f.key));
+        var val = f.type === 'checkbox' ? el.checked : el.value;
+        if (f.required && (val === '' || val === null || val === undefined)) valid = false;
+        data[f.key] = val;
+      });
+      if (!valid) { toastWarning('Data belum lengkap. Mohon lengkapi field bertanda *.'); return; }
+
+      var restore = setButtonLoading(document.getElementById(self.uid('saveBtn')), 'Menyimpan...');
+      var action = isEdit ? self.opts.updateAction : self.opts.createAction;
+      var payload = isEdit ? Object.assign({ id: row[self.opts.idField || 'id'] }, data) : data;
+      apiPost(action, payload, { successMessage: isEdit ? 'Data berhasil diperbarui.' : 'Data berhasil disimpan.' })
+        .then(function () { modal.hide(); self.load(); })
+        .catch(function () {})
+        .finally(restore);
+    });
+  };
+</script>

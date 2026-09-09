@@ -1,0 +1,81 @@
+<script>
+  // ================== JADWAL SHALAT ==================
+  PAGE_RENDERERS['prayer'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<div class="mms-page-title">Jadwal Shalat</div>' +
+      '<div class="mms-page-subtitle">Jadwal harian diambil dari API dan disimpan otomatis (dengan opsi koreksi manual)</div>' +
+      '<div class="card-soft p-3 mb-3"><div class="d-flex flex-wrap align-items-end gap-2">' +
+      '<div><label class="form-label">Tanggal</label><input type="date" class="form-control" id="prayerDate" value="' + todayYmd() + '"></div>' +
+      '<button class="btn btn-mms" id="prayerLoadBtn"><i class="bi bi-search me-1"></i>Lihat Jadwal</button>' +
+      '<button class="btn btn-outline-mms" id="prayerMonthBtn"><i class="bi bi-calendar-month me-1"></i>Lihat Sebulan</button>' +
+      '</div></div>' +
+      '<div id="prayerDailyCard"></div>' +
+      '<div id="prayerMonthlyTable" class="mt-3"></div>';
+
+    function loadDaily() {
+      var date = document.getElementById('prayerDate').value || todayYmd();
+      document.getElementById('prayerDailyCard').innerHTML = '<div class="text-center py-4"><div class="spinner-border text-success"></div></div>';
+      apiGet('getPrayerSchedule', { date: date }, { silent: true }).then(function (s) {
+        var keys = [['imsak', 'Imsak'], ['subuh', 'Subuh'], ['terbit', 'Terbit'], ['dzuhur', 'Dzuhur'], ['ashar', 'Ashar'], ['maghrib', 'Maghrib'], ['isya', 'Isya']];
+        var html = '<div class="card-soft p-3"><div class="d-flex justify-content-between align-items-center mb-3">' +
+          '<h6 class="fw-bold mb-0">Jadwal ' + formatDateFullId(date) + '</h6>' +
+          '<span class="badge-soft badge-muted">Sumber: ' + escapeHtml(s.source || 'api') + '</span></div>' +
+          '<div class="row g-2" id="prayerFieldsRow">';
+        keys.forEach(function (k) {
+          html += '<div class="col-6 col-md-3 col-lg-3"><label class="form-label small">' + k[1] + '</label>' +
+            '<input type="time" class="form-control" id="prayerField_' + k[0] + '" value="' + escapeHtml(s[k[0]] || '') + '"></div>';
+        });
+        html += '</div><button class="btn btn-mms mt-3" id="prayerSaveBtn"><i class="bi bi-save me-1"></i>Simpan Koreksi Manual</button></div>';
+        document.getElementById('prayerDailyCard').innerHTML = html;
+        document.getElementById('prayerSaveBtn').addEventListener('click', function () {
+          var data = { date: date };
+          keys.forEach(function (k) { data[k[0]] = document.getElementById('prayerField_' + k[0]).value; });
+          var restore = setButtonLoading(this, 'Menyimpan...');
+          apiPost('updatePrayerScheduleManual', data, { successMessage: 'Jadwal shalat berhasil diperbarui.' }).finally(restore);
+        });
+      });
+    }
+
+    document.getElementById('prayerLoadBtn').addEventListener('click', loadDaily);
+    document.getElementById('prayerMonthBtn').addEventListener('click', function () {
+      var month = (document.getElementById('prayerDate').value || todayYmd()).substring(0, 7);
+      var area = document.getElementById('prayerMonthlyTable');
+      area.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-success"></div></div>';
+      apiGet('getMonthlyPrayerSchedule', { month: month }, { silent: true }).then(function (rows) {
+        area.innerHTML = '<div class="card-soft p-3"><div class="table-responsive"><table class="table table-mms mb-0"><thead><tr><th>Tanggal</th><th>Imsak</th><th>Subuh</th><th>Terbit</th><th>Dzuhur</th><th>Ashar</th><th>Maghrib</th><th>Isya</th></tr></thead><tbody>' +
+          rows.map(function (r) {
+            return '<tr><td>' + formatDateId(r.date) + '</td><td>' + r.imsak + '</td><td>' + r.subuh + '</td><td>' + r.terbit + '</td><td>' + r.dzuhur + '</td><td>' + r.ashar + '</td><td>' + r.maghrib + '</td><td>' + r.isya + '</td></tr>';
+          }).join('') + '</tbody></table></div></div>';
+      });
+    });
+    loadDaily();
+  };
+
+  // ================== IMAM & KHATIB ==================
+  PAGE_RENDERERS['imam'] = function (containerId) {
+    var crud = new CrudModule({
+      key: 'imam', title: 'Jadwal Imam & Khatib', subtitle: 'Kelola jadwal imam, khatib, dan muadzin',
+      listAction: 'getImamSchedules', createAction: 'createImamSchedule', updateAction: 'updateImamSchedule', deleteAction: 'deleteImamSchedule',
+      addLabel: 'Tambah Jadwal', searchPlaceholder: false,
+      filters: [{ key: 'prayer_type', label: 'Jenis Shalat', options: ['Subuh', 'Dzuhur', 'Ashar', 'Maghrib', 'Isya', 'Jumat', 'Tarawih', 'Witir', 'Idul Fitri', 'Idul Adha'] }],
+      columns: [
+        { key: 'date', label: 'Tanggal', render: function (r) { return formatDateId(r.date); } },
+        { key: 'prayer_type', label: 'Jenis Shalat', render: function (r) { return '<span class="badge-soft badge-info">' + escapeHtml(r.prayer_type) + '</span>'; } },
+        { key: 'imam', label: 'Imam' },
+        { key: 'khatib', label: 'Khatib' },
+        { key: 'muadzin', label: 'Muadzin' },
+        { key: 'topic', label: 'Tema' }
+      ],
+      fields: [
+        { key: 'date', label: 'Tanggal', type: 'date', required: true, half: true, default: todayYmd() },
+        { key: 'prayer_type', label: 'Jenis Shalat', type: 'select', required: true, half: true, options: ['Subuh', 'Dzuhur', 'Ashar', 'Maghrib', 'Isya', 'Jumat', 'Tarawih', 'Witir', 'Idul Fitri', 'Idul Adha'] },
+        { key: 'imam', label: 'Imam', type: 'text', half: true },
+        { key: 'khatib', label: 'Khatib', type: 'text', half: true },
+        { key: 'muadzin', label: 'Muadzin', type: 'text', half: true },
+        { key: 'topic', label: 'Tema/Materi', type: 'text', half: true },
+        { key: 'notes', label: 'Catatan', type: 'textarea' }
+      ]
+    });
+    crud.mount(containerId);
+  };
+</script>

@@ -1,0 +1,113 @@
+<script>
+  // ================== DIGITAL SIGNAGE (monitoring + emergency) ==================
+  PAGE_RENDERERS['signage'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">' +
+      '<div><div class="mms-page-title">Digital Signage</div><div class="mms-page-subtitle">Monitor status TV masjid dan kendalikan mode darurat</div></div>' +
+      '<div class="d-flex gap-2"><a class="btn btn-outline-mms" href="' + WEB_APP_URL + '?page=display" target="_blank"><i class="bi bi-box-arrow-up-right me-1"></i>Buka Display</a></div></div>' +
+      '<div class="row g-3">' +
+      '<div class="col-lg-4"><div class="card-soft p-3"><h6 class="fw-bold mb-3">Status Display</h6><div id="signageStatus"></div></div></div>' +
+      '<div class="col-lg-8"><div class="card-soft p-3 border-danger"><h6 class="fw-bold text-danger mb-2"><i class="bi bi-exclamation-octagon-fill me-1"></i>Mode Darurat</h6>' +
+      '<p class="text-muted-c small">Mengaktifkan mode ini akan menghentikan seluruh mode display lain dan menampilkan pesan darurat di layar TV.</p>' +
+      '<textarea class="form-control mb-2" id="emergencyMsg" rows="2" placeholder="Contoh: Parkir sisi timur sedang ditutup."></textarea>' +
+      '<div class="d-flex gap-2"><button class="btn btn-danger" id="emergencyOnBtn"><i class="bi bi-broadcast me-1"></i>Aktifkan Darurat</button>' +
+      '<button class="btn btn-outline-secondary" id="emergencyOffBtn">Nonaktifkan</button></div></div></div>' +
+      '</div>';
+
+    function loadStatus() {
+      apiGet('getDisplayStatus', {}, { silent: true }).then(function (s) {
+        document.getElementById('signageStatus').innerHTML =
+          '<div class="d-flex justify-content-between border-bottom py-2"><span>Status</span>' + (s.online ? '<span class="badge-soft badge-success">ONLINE</span>' : '<span class="badge-soft badge-danger">OFFLINE</span>') + '</div>' +
+          '<div class="d-flex justify-content-between border-bottom py-2"><span>Last Sync</span><b>' + (s.last_ping ? formatDateTimeId(s.last_ping) : '-') + '</b></div>' +
+          '<div class="d-flex justify-content-between border-bottom py-2"><span>Current State</span><b>' + escapeHtml(s.current_state || '-') + '</b></div>' +
+          '<div class="d-flex justify-content-between border-bottom py-2"><span>Current Prayer</span><b>' + escapeHtml(s.current_prayer || '-') + '</b></div>' +
+          '<div class="d-flex justify-content-between py-2"><span>Next Prayer</span><b>' + escapeHtml(s.next_prayer || '-') + (s.next_prayer_time ? ' (' + s.next_prayer_time + ')' : '') + '</b></div>';
+      });
+    }
+
+    document.getElementById('emergencyOnBtn').addEventListener('click', function () {
+      var msg = document.getElementById('emergencyMsg').value.trim();
+      if (!msg) { toastWarning('Isi pesan darurat terlebih dahulu.'); return; }
+      confirmAction('Aktifkan mode darurat di layar TV masjid sekarang?', function () {
+        apiPost('setEmergency', { active: true, message: msg }, { successMessage: 'Mode darurat diaktifkan.' }).then(loadStatus);
+      }, { okLabel: 'Aktifkan', okClass: 'btn-danger' });
+    });
+    document.getElementById('emergencyOffBtn').addEventListener('click', function () {
+      apiPost('setEmergency', { active: false }, { successMessage: 'Mode darurat dinonaktifkan.' }).then(loadStatus);
+    });
+
+    loadStatus();
+    window.__mmsPageInterval = setInterval(loadStatus, 15000);
+  };
+
+  // ================== PLAYLIST ==================
+  PAGE_RENDERERS['playlist'] = function (containerId) {
+    var crud = new CrudModule({
+      key: 'playlist', title: 'Playlist Display', subtitle: 'Atur urutan dan durasi slide yang tampil bergantian di layar TV',
+      listAction: 'getPlaylist', createAction: 'createPlaylistItem', updateAction: 'updatePlaylistItem', deleteAction: 'deletePlaylistItem',
+      addLabel: 'Tambah Slide', searchPlaceholder: false, pageSize: 50,
+      columns: [
+        { key: 'order_index', label: 'Urutan' },
+        { key: 'name', label: 'Nama Slide' },
+        { key: 'slide_type', label: 'Tipe' },
+        { key: 'duration_seconds', label: 'Durasi (detik)' },
+        { key: 'is_active', label: 'Aktif', render: function (r) { return r.is_active ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle text-muted-c"></i>'; } }
+      ],
+      fields: [
+        { key: 'name', label: 'Nama Slide', type: 'text', required: true },
+        { key: 'slide_type', label: 'Tipe Slide', type: 'select', required: true, half: true, options: ['clock', 'announcement', 'event', 'donation', 'info'] },
+        { key: 'order_index', label: 'Urutan', type: 'number', half: true, default: 1 },
+        { key: 'duration_seconds', label: 'Durasi (detik)', type: 'number', half: true, default: 10 },
+        { key: 'is_active', label: 'Aktif', type: 'checkbox', default: true }
+      ]
+    });
+    crud.mount(containerId);
+  };
+
+  // ================== DISPLAY SETTINGS ==================
+  PAGE_RENDERERS['display-settings'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<div class="mms-page-title">Display Settings</div><div class="mms-page-subtitle">Pengaturan tampilan dan perilaku layar TV masjid</div><div class="card-soft p-3" id="dsForm"></div>';
+
+    apiGet('getDisplaySettings', {}, { silent: true }).then(function (s) {
+      var form = document.getElementById('dsForm');
+      form.innerHTML =
+        formRow('Durasi Slide (detik)', numInput('ds_slide_duration_seconds', s.slide_duration_seconds)) +
+        formRow('Trigger Countdown (menit sebelum shalat)', numInput('ds_countdown_trigger_minutes', s.countdown_trigger_minutes)) +
+        formRow('Durasi Mode Shalat (menit)', numInput('ds_prayer_mode_duration_minutes', s.prayer_mode_duration_minutes)) +
+        formRow('Durasi Mode Pengumuman (detik)', numInput('ds_announcement_duration_seconds', s.announcement_duration_seconds)) +
+        formRow('Durasi Mode Event (detik)', numInput('ds_event_duration_seconds', s.event_duration_seconds)) +
+        formRow('Kecepatan Ticker', selectInput('ds_ticker_speed', s.ticker_speed, ['slow', 'normal', 'fast'])) +
+        formRow('Tema Display', selectInput('ds_theme', s.theme, ['emerald', 'dark', 'minimal', 'gold'])) +
+        formRow('Auto Refresh (detik)', numInput('ds_auto_refresh_seconds', s.auto_refresh_seconds)) +
+        checkRow('Tampilkan Hijriah', 'ds_show_hijri', s.show_hijri === 'true') +
+        checkRow('Tampilkan Cuaca', 'ds_show_weather', s.show_weather === 'true') +
+        checkRow('Tampilkan Donasi', 'ds_show_donation', s.show_donation === 'true') +
+        checkRow('Tampilkan Agenda', 'ds_show_agenda', s.show_agenda === 'true') +
+        checkRow('Tampilkan Pengumuman', 'ds_show_announcement', s.show_announcement === 'true') +
+        checkRow('Tampilkan Ringkasan Keuangan', 'ds_show_financial_summary', s.show_financial_summary === 'true') +
+        '<button class="btn btn-mms mt-2" id="dsSaveBtn"><i class="bi bi-save me-1"></i>Simpan Pengaturan</button>';
+
+      document.getElementById('dsSaveBtn').addEventListener('click', function () {
+        var data = {
+          slide_duration_seconds: val('ds_slide_duration_seconds'), countdown_trigger_minutes: val('ds_countdown_trigger_minutes'),
+          prayer_mode_duration_minutes: val('ds_prayer_mode_duration_minutes'), announcement_duration_seconds: val('ds_announcement_duration_seconds'),
+          event_duration_seconds: val('ds_event_duration_seconds'), ticker_speed: val('ds_ticker_speed'), theme: val('ds_theme'),
+          auto_refresh_seconds: val('ds_auto_refresh_seconds'),
+          show_hijri: String(checked('ds_show_hijri')), show_weather: String(checked('ds_show_weather')),
+          show_donation: String(checked('ds_show_donation')), show_agenda: String(checked('ds_show_agenda')),
+          show_announcement: String(checked('ds_show_announcement')), show_financial_summary: String(checked('ds_show_financial_summary'))
+        };
+        var restore = setButtonLoading(this, 'Menyimpan...');
+        apiPost('updateDisplaySettings', data, { successMessage: 'Pengaturan display berhasil disimpan.' }).finally(restore);
+      });
+    });
+
+    function val(id) { return document.getElementById(id).value; }
+    function checked(id) { return document.getElementById(id).checked; }
+    function formRow(label, inputHtml) { return '<div class="row mb-3 align-items-center"><label class="col-sm-4 form-label mb-0">' + label + '</label><div class="col-sm-8">' + inputHtml + '</div></div>'; }
+    function checkRow(label, id, checkedVal) { return '<div class="row mb-3 align-items-center"><div class="col-sm-4"></div><div class="col-sm-8 form-check"><input type="checkbox" class="form-check-input" id="' + id + '" ' + (checkedVal ? 'checked' : '') + '><label class="form-check-label" for="' + id + '">' + label + '</label></div></div>'; }
+    function numInput(id, value) { return '<input type="number" class="form-control" id="' + id + '" value="' + escapeHtml(value) + '">'; }
+    function selectInput(id, value, options) { return '<select class="form-select" id="' + id + '">' + options.map(function (o) { return '<option value="' + o + '" ' + (o === value ? 'selected' : '') + '>' + o + '</option>'; }).join('') + '</select>'; }
+  };
+</script>

@@ -1,0 +1,347 @@
+<script>
+  /**
+   * DisplayEngine — state machine untuk Digital Signage (butir 78-79).
+   * Prioritas mode (butir 32): EMERGENCY > PRAYER > JUMAT > EVENT > ANNOUNCEMENT > COUNTDOWN > NORMAL.
+   *
+   * Tidak ada WebSocket (butir 81): engine melakukan polling berkala ke endpoint
+   * getDisplayBundle, sementara jam & countdown berjalan lokal setiap detik memakai
+   * offset waktu server (butir 82) agar tetap presisi walau polling hanya tiap 30 detik.
+   */
+  var DISPLAY_STATE = { EMERGENCY: 'EMERGENCY', PRAYER: 'PRAYER', JUMAT: 'JUMAT', EVENT: 'EVENT', ANNOUNCEMENT: 'ANNOUNCEMENT', COUNTDOWN: 'COUNTDOWN', NORMAL: 'NORMAL' };
+  var DISPLAY_CACHE_KEY = 'mms_display_cache_v1';
+
+  class DisplayEngine {
+    constructor(rootId) {
+      this.rootId = rootId;
+      this.bundle = null;
+      this.serverTimeOffset = 0;
+      this.currentState = DISPLAY_STATE.NORMAL;
+      this.stateEnteredAt = Date.now();
+      this.isOffline = false;
+      this.slideIndex = 0;
+      this.slideEnteredAt = Date.now();
+      this.announcementInterruptUntil = 0;
+      this.lastAnnouncementInterruptAt = 0;
+      this.tickCount = 0;
+    }
+
+    getNow() { return new Date(Date.now() + this.serverTimeOffset); }
+
+    // ================== DATA FETCH ==================
+    fetchBundle() {
+      return apiGet('getDisplayBundle', {}, { noAuth: true, silent: true, silentError: true }).then((data) => {
+        this.bundle = data;
+        this.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();
+        this.isOffline = false;
+        try { localStorage.setItem(DISPLAY_CACHE_KEY, JSON.stringify(data)); } catch (e) {}
+        this.updateOfflineIndicator();
+        return data;
+      }).catch(() => {
+        this.isOffline = true;
+        if (!this.bundle) {
+          try {
+            var cached = localStorage.getItem(DISPLAY_CACHE_KEY);
+            if (cached) this.bundle = JSON.parse(cached);
+          } catch (e) {}
+        }
+        this.updateOfflineIndicator();
+      });
+    }
+
+    updateOfflineIndicator() {
+      var pill = document.getElementById('tvOfflinePill');
+      if (pill) pill.style.display = this.isOffline ? 'flex' : 'none';
+    }
+
+    // ================== PRAYER / COUNTDOWN CALC ==================
+    calculateNextPrayer() {
+      if (!this.bundle) return null;
+      return this.bundle.nextPrayer;
+    }
+
+    calculateCountdown(dateStr, hm) {
+      var now = this.getNow();
+      var target = new Date(dateStr + 'T' + hm + ':00');
+      var diffMs = target.getTime() - now.getTime();
+      if (diffMs < 0) diffMs = 0;
+      var totalSeconds = Math.floor(diffMs / 1000);
+      return {
+        totalSeconds: totalSeconds,
+        hours: Math.floor(totalSeconds / 3600),
+        minutes: Math.floor((totalSeconds % 3600) / 60),
+        seconds: totalSeconds % 60
+      };
+    }
+
+    minutesSince(dateStr, hm) {
+      var now = this.getNow();
+      var target = new Date(dateStr + 'T' + hm + ':00');
+      return (now.getTime() - target.getTime()) / 60000;
+    }
+
+    // ================== MODE CONDITIONS ==================
+    shouldShowPrayerMode() {
+      if (!this.bundle) return false;
+      var durationMin = Number(this.bundle.displaySettings.prayer_mode_duration_minutes) || 5;
+      var schedule = this.bundle.prayerSchedule;
+      var prayers = ['subuh', 'dzuhur', 'ashar', 'maghrib', 'isya'];
+      for (var i = 0; i < prayers.length; i++) {
+        var key = prayers[i];
+        if (!schedule[key]) continue;
+        var mins = this.minutesSince(schedule.date, schedule[key]);
+        if (mins >= 0 && mins <= durationMin) {
+          this.activePrayerName = key.charAt(0).toUpperCase() + key.slice(1);
+          this.activePrayerTime = schedule[key];
+          return true;
+        }
+      }
+      return false;
+    }
+
+    shouldShowFridayMode() {
+      if (!this.bundle || !this.bundle.fridaySchedule) return false;
+      var now = this.getNow();
+      if (now.getDay() !== 5) return false;
+      var schedule = this.bundle.prayerSchedule;
+      if (!schedule.dzuhur) return false;
+      var triggerMin = Number(this.bundle.displaySettings.countdown_trigger_minutes) || 15;
+      var durationMin = Number(this.bundle.displaySettings.prayer_mode_duration_minutes) || 5;
+      var mins = this.minutesSince(schedule.date, schedule.dzuhur);
+      return mins >= -triggerMin && mins <= durationMin;
+    }
+
+    shouldShowEventMode() {
+      return !!(this.bundle && this.bundle.ongoingEvent);
+    }
+
+    shouldShowAnnouncementMode() {
+      if (!this.bundle || !this.bundle.urgentAnnouncement) return false;
+      var now = Date.now();
+      if (now < this.announcementInterruptUntil) return true;
+      var announcementDurationMs = (Number(this.bundle.displaySettings.announcement_duration_seconds) || 15) * 1000;
+      var cooldownMs = 3 * 60 * 1000; // interupsi ulang tiap 3 menit sekali agar tidak mengganggu rotasi normal
+      if (now - this.lastAnnouncementInterruptAt > cooldownMs) {
+        this.announcementInterruptUntil = now + announcementDurationMs;
+        this.lastAnnouncementInterruptAt = now;
+        return true;
+      }
+      return false;
+    }
+
+    shouldShowCountdownMode() {
+      var next = this.calculateNextPrayer();
+      if (!next) return false;
+      var triggerMin = Number(this.bundle.displaySettings.countdown_trigger_minutes) || 15;
+      var cd = this.calculateCountdown(next.date, next.time);
+      return cd.totalSeconds > 0 && cd.totalSeconds <= triggerMin * 60;
+    }
+
+    // ================== PRIORITY ENGINE ==================
+    getCurrentState() {
+      if (!this.bundle) return DISPLAY_STATE.NORMAL;
+      if (this.bundle.emergency && this.bundle.emergency.active) return DISPLAY_STATE.EMERGENCY;
+      if (this.shouldShowPrayerMode()) return DISPLAY_STATE.PRAYER;
+      if (this.shouldShowFridayMode()) return DISPLAY_STATE.JUMAT;
+      if (this.shouldShowEventMode()) return DISPLAY_STATE.EVENT;
+      if (this.shouldShowAnnouncementMode()) return DISPLAY_STATE.ANNOUNCEMENT;
+      if (this.shouldShowCountdownMode()) return DISPLAY_STATE.COUNTDOWN;
+      return DISPLAY_STATE.NORMAL;
+    }
+
+    // ================== RENDER ==================
+    renderState() {
+      if (!this.bundle) return;
+      var newState = this.getCurrentState();
+      if (newState !== this.currentState) {
+        this.currentState = newState;
+        this.stateEnteredAt = Date.now();
+      }
+      this.renderChrome();
+      switch (this.currentState) {
+        case DISPLAY_STATE.EMERGENCY: this.renderEmergency(); break;
+        case DISPLAY_STATE.PRAYER: this.renderPrayerActive(); break;
+        case DISPLAY_STATE.JUMAT: this.renderFriday(); break;
+        case DISPLAY_STATE.EVENT: this.renderEvent(); break;
+        case DISPLAY_STATE.ANNOUNCEMENT: this.renderAnnouncement(); break;
+        case DISPLAY_STATE.COUNTDOWN: this.renderCountdown(); break;
+        default: this.renderNormal();
+      }
+    }
+
+    renderChrome() {
+      var now = this.getNow();
+      var hh = String(now.getHours()).padStart(2, '0'), mm = String(now.getMinutes()).padStart(2, '0'), ss = String(now.getSeconds()).padStart(2, '0');
+      setText('tvClockHeader', hh + ':' + mm + ':' + ss);
+      setText('tvMosqueName', this.bundle.mosque.name);
+      setText('tvMosqueAddr', this.bundle.mosque.address);
+      if (this.bundle.mosque.logo_url) {
+        var logo = document.getElementById('tvMosqueLogo');
+        if (logo && logo.src !== this.bundle.mosque.logo_url) logo.src = this.bundle.mosque.logo_url;
+      }
+
+      var theme = this.bundle.displaySettings.theme || 'emerald';
+      var screen = document.getElementById('tvScreen');
+      if (screen) screen.className = 'tv-screen theme-' + theme;
+
+      this.renderSidePrayerList();
+      this.renderTicker();
+    }
+
+    renderSidePrayerList() {
+      var schedule = this.bundle.prayerSchedule;
+      var next = this.bundle.nextPrayer;
+      var prayers = [['imsak', 'Imsak'], ['subuh', 'Subuh'], ['terbit', 'Terbit'], ['dzuhur', 'Dzuhur'], ['ashar', 'Ashar'], ['maghrib', 'Maghrib'], ['isya', 'Isya']];
+      var html = prayers.map((p) => {
+        var isNext = next && next.name.toLowerCase() === p[0];
+        return '<div class="tv-prayer-row' + (isNext ? ' is-next' : '') + '"><span class="name"><i class="bi bi-clock"></i> ' + p[1] + '</span><span>' + (schedule[p[0]] || '--:--') + '</span></div>';
+      }).join('');
+      setHtml('tvPrayerList', html);
+    }
+
+    renderTicker() {
+      var items = [];
+      (this.bundle.announcements || []).forEach((a) => items.push('<b>INFO</b>' + a.title));
+      (this.bundle.upcomingEvents || []).slice(0, 3).forEach((e) => items.push('<b>AGENDA</b>' + e.title + ' — ' + formatDateId(e.date)));
+      if (items.length === 0) items.push('<b>' + this.bundle.mosque.name + '</b>Selamat datang, semoga Allah menerima ibadah kita.');
+      var speedMap = { slow: '55s', normal: '35s', fast: '20s' };
+      var speed = speedMap[this.bundle.displaySettings.ticker_speed] || '35s';
+      var track = document.getElementById('tvTickerTrack');
+      if (track) {
+        track.style.animationDuration = speed;
+        track.innerHTML = items.join('&nbsp;&nbsp;&nbsp;&nbsp;•&nbsp;&nbsp;&nbsp;&nbsp;');
+      }
+    }
+
+    setMain(html) { setHtml('tvMain', html); }
+
+    renderNormal() {
+      var slides = this.buildNormalSlides();
+      var duration = (Number(this.bundle.displaySettings.slide_duration_seconds) || 10) * 1000;
+      if (Date.now() - this.slideEnteredAt > duration) {
+        this.slideIndex = (this.slideIndex + 1) % slides.length;
+        this.slideEnteredAt = Date.now();
+      }
+      this.setMain('<div class="tv-fade">' + slides[this.slideIndex % slides.length] + '</div>');
+    }
+
+    buildNormalSlides() {
+      var now = this.getNow();
+      var slides = [];
+      slides.push(
+        '<div class="text-center"><div class="tv-clock">' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0') + '</div>' +
+        '<div class="tv-date">' + formatDateFullId(this.bundle.serverTime) + '</div>' +
+        (this.bundle.displaySettings.show_hijri === 'true' ? '<div class="tv-hijri">' + this.bundle.hijri + '</div>' : '') + '</div>'
+      );
+      if (this.bundle.displaySettings.show_announcement === 'true' && this.bundle.announcements.length) {
+        slides.push('<div class="tv-announce-card"><div class="tv-announce-badge">Pengumuman</div><div class="tv-announce-title">' + escapeHtmlTv(this.bundle.announcements[0].title) + '</div>' +
+          '<div class="tv-announce-content">' + escapeHtmlTv(this.bundle.announcements[0].content) + '</div></div>');
+      }
+      if (this.bundle.displaySettings.show_agenda === 'true' && this.bundle.upcomingEvents.length) {
+        var e = this.bundle.upcomingEvents[0];
+        slides.push('<div class="tv-event-card"><div class="tv-event-badge">Agenda Terdekat</div><div class="tv-event-title">' + escapeHtmlTv(e.title) + '</div>' +
+          '<div class="tv-event-meta">' + formatDateFullId(e.date) + ' &middot; ' + (e.start_time || '') + (e.location ? ' &middot; ' + escapeHtmlTv(e.location) : '') + '</div></div>');
+      }
+      if (this.bundle.displaySettings.show_donation === 'true' && this.bundle.campaigns.length) {
+        var c = this.bundle.campaigns[0];
+        var pct = c.target_amount > 0 ? Math.min(100, Math.round((c.current_amount / c.target_amount) * 100)) : 0;
+        slides.push('<div class="tv-donation-card"><div class="tv-donation-title">' + escapeHtmlTv(c.title) + '</div>' +
+          '<div class="tv-donation-amounts">' + formatRupiah(c.current_amount) + ' / ' + formatRupiah(c.target_amount) + '</div>' +
+          '<div class="tv-progress-track"><div class="tv-progress-fill" style="width:' + pct + '%"></div></div><div class="mt-2">' + pct + '%</div></div>');
+      }
+      slides.push('<div class="text-center"><div class="tv-hijri" style="font-size:1.4rem">' + escapeHtmlTv(this.bundle.mosque.description || '') + '</div>' +
+        '<div class="tv-date mt-2">' + escapeHtmlTv(this.bundle.mosque.name) + '</div></div>');
+      return slides;
+    }
+
+    renderCountdown() {
+      var next = this.bundle.nextPrayer;
+      var cd = this.calculateCountdown(next.date, next.time);
+      this.setMain(
+        '<div class="text-center tv-fade"><div class="tv-countdown-label">Menuju ' + next.name + '</div>' +
+        '<div class="tv-countdown-value">' + pad2tv(cd.hours) + ':' + pad2tv(cd.minutes) + ':' + pad2tv(cd.seconds) + '</div>' +
+        '<div class="tv-date mt-2">Pukul ' + next.time + '</div></div>'
+      );
+    }
+
+    renderPrayerActive() {
+      this.setMain(
+        '<div class="text-center tv-fade"><i class="bi bi-moon-stars tv-prayer-active-icon"></i>' +
+        '<div class="tv-prayer-active-name">Waktu ' + (this.activePrayerName || '') + '</div>' +
+        '<div class="tv-prayer-active-sub">Telah masuk waktu shalat ' + (this.activePrayerName || '') + ' — ' + (this.activePrayerTime || '') + '</div></div>'
+      );
+    }
+
+    renderFriday() {
+      var f = this.bundle.fridaySchedule;
+      this.setMain(
+        '<div class="tv-friday-card tv-fade"><div class="tv-friday-title">SHALAT JUMAT</div>' +
+        '<div class="tv-friday-grid">' +
+        '<div class="tv-friday-item"><div class="label">Khatib</div><div class="val">' + escapeHtmlTv(f.khatib || '-') + '</div></div>' +
+        '<div class="tv-friday-item"><div class="label">Imam</div><div class="val">' + escapeHtmlTv(f.imam || '-') + '</div></div>' +
+        '<div class="tv-friday-item"><div class="label">Tema</div><div class="val">' + escapeHtmlTv(f.topic || '-') + '</div></div>' +
+        '<div class="tv-friday-item"><div class="label">Jam</div><div class="val">' + escapeHtmlTv(this.bundle.prayerSchedule.dzuhur || '-') + '</div></div>' +
+        '</div></div>'
+      );
+    }
+
+    renderEvent() {
+      var e = this.bundle.ongoingEvent;
+      this.setMain(
+        '<div class="tv-event-card tv-fade"><div class="tv-event-badge">' + escapeHtmlTv(e.category) + ' Sedang Berlangsung</div>' +
+        '<div class="tv-event-title">' + escapeHtmlTv(e.title) + '</div>' +
+        '<div class="tv-event-meta">' + escapeHtmlTv(e.speaker || '') + (e.speaker ? ' &middot; ' : '') + (e.start_time || '') + ' - ' + (e.end_time || '') + '</div></div>'
+      );
+    }
+
+    renderAnnouncement() {
+      var a = this.bundle.urgentAnnouncement;
+      this.setMain(
+        '<div class="tv-announce-card tv-fade"><div class="tv-announce-badge">Pengumuman Penting</div>' +
+        '<div class="tv-announce-title">' + escapeHtmlTv(a.title) + '</div>' +
+        '<div class="tv-announce-content">' + escapeHtmlTv(a.content) + '</div></div>'
+      );
+    }
+
+    renderEmergency() {
+      var screen = document.getElementById('tvScreen');
+      if (screen) screen.classList.add('tv-emergency');
+      this.setMain(
+        '<div class="text-center tv-fade"><div class="tv-emergency-title"><i class="bi bi-exclamation-octagon-fill me-2"></i>PENGUMUMAN PENTING</div>' +
+        '<div class="tv-emergency-msg">' + escapeHtmlTv(this.bundle.emergency.message) + '</div></div>'
+      );
+    }
+
+    // ================== LIFECYCLE ==================
+    startClock() {
+      this.renderState();
+      setInterval(() => this.renderState(), 1000);
+    }
+
+    startPolling() {
+      var self = this;
+      function poll() {
+        var seconds = (self.bundle && Number(self.bundle.displaySettings.auto_refresh_seconds)) || 30;
+        self.fetchBundle().finally(() => setTimeout(poll, seconds * 1000));
+      }
+      poll();
+    }
+
+    startHeartbeat() {
+      var self = this;
+      setInterval(() => {
+        if (!self.bundle) return;
+        apiPost('displayHeartbeat', {
+          state: self.currentState,
+          current_prayer: self.activePrayerName || '',
+          next_prayer: self.bundle.nextPrayer ? self.bundle.nextPrayer.name : '',
+          next_prayer_time: self.bundle.nextPrayer ? self.bundle.nextPrayer.time : ''
+        }, { noAuth: true, silent: true, silentError: true, successMessage: false });
+      }, 30000);
+    }
+  }
+
+  function setText(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; }
+  function setHtml(id, html) { var el = document.getElementById(id); if (el) el.innerHTML = html; }
+  function pad2tv(n) { return String(n).padStart(2, '0'); }
+  function escapeHtmlTv(s) { return escapeHtml(s); }
+</script>

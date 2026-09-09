@@ -1,0 +1,105 @@
+<script>
+  // ================== ANNOUNCEMENTS ==================
+  PAGE_RENDERERS['announcements'] = function (containerId) {
+    var crud = new CrudModule({
+      key: 'announcement', title: 'Pengumuman', subtitle: 'Kelola pengumuman untuk jamaah dan layar TV masjid',
+      listAction: 'getAnnouncements', createAction: 'createAnnouncement', updateAction: 'updateAnnouncement', deleteAction: 'deleteAnnouncement',
+      addLabel: 'Buat Pengumuman', searchPlaceholder: 'Cari judul/isi pengumuman...',
+      filters: [
+        { key: 'category', label: 'Kategori', options: ['Umum', 'Kegiatan', 'Donasi', 'Kajian', 'Kematian', 'Kehilangan', 'Pemberitahuan', 'Lainnya'] },
+        { key: 'status', label: 'Status', options: [{ value: 'draft', label: 'Draft' }, { value: 'published', label: 'Published' }] }
+      ],
+      columns: [
+        { key: 'title', label: 'Judul', render: function (r) { return (r.is_pinned ? '<i class="bi bi-pin-angle-fill text-warning me-1"></i>' : '') + escapeHtml(r.title); } },
+        { key: 'category', label: 'Kategori' },
+        { key: 'start_date', label: 'Mulai', render: function (r) { return formatDateId(r.start_date); } },
+        { key: 'priority', label: 'Prioritas', render: function (r) { return '<span class="badge-soft ' + (r.priority === 'high' ? 'badge-danger' : 'badge-muted') + '">' + escapeHtml(r.priority) + '</span>'; } },
+        { key: 'status', label: 'Status', render: function (r) { return statusBadge(r.status); } },
+        { key: 'is_display', label: 'Display', render: function (r) { return r.is_display ? '<i class="bi bi-tv-fill text-primary-c"></i>' : ''; } }
+      ],
+      fields: [
+        { key: 'title', label: 'Judul Pengumuman', type: 'text', required: true },
+        { key: 'category', label: 'Kategori', type: 'select', required: true, half: true, options: ['Umum', 'Kegiatan', 'Donasi', 'Kajian', 'Kematian', 'Kehilangan', 'Pemberitahuan', 'Lainnya'] },
+        { key: 'priority', label: 'Prioritas', type: 'select', half: true, options: ['normal', 'high'], default: 'normal' },
+        { key: 'start_date', label: 'Tanggal Mulai', type: 'date', required: true, half: true, default: todayYmd() },
+        { key: 'end_date', label: 'Tanggal Selesai (opsional)', type: 'date', half: true },
+        { key: 'content', label: 'Isi Pengumuman', type: 'textarea', required: true, rows: 4 },
+        { key: 'status', label: 'Status', type: 'select', half: true, options: [{ value: 'draft', label: 'Draft' }, { value: 'published', label: 'Published' }], default: 'draft' },
+        { key: 'is_pinned', label: 'Pin di atas', type: 'checkbox', half: true },
+        { key: 'is_display', label: 'Tampilkan di Layar TV Masjid', type: 'checkbox' }
+      ],
+      extraActions: function (row) {
+        var actions = [];
+        if (row.status === 'draft') actions.push({ label: 'Publish', icon: 'bi-send-check', onClick: function (r, m) { apiPost('publishAnnouncement', { id: r.id }, { successMessage: 'Pengumuman dipublikasikan.' }).then(function () { m.load(); }); } });
+        else actions.push({ label: 'Unpublish', icon: 'bi-eye-slash', onClick: function (r, m) { apiPost('unpublishAnnouncement', { id: r.id }, { successMessage: 'Pengumuman ditarik dari publikasi.' }).then(function () { m.load(); }); } });
+        return actions;
+      }
+    });
+    crud.mount(containerId);
+  };
+
+  // ================== EVENTS / AGENDA ==================
+  PAGE_RENDERERS['events'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<div class="mms-page-title">Agenda Kegiatan</div>' +
+      '<div class="mms-page-subtitle">Kelola agenda kegiatan masjid: kajian, rapat, kegiatan sosial, dsb</div>' +
+      '<ul class="nav nav-pills mb-3"><li class="nav-item"><a class="nav-link active" data-view="list" href="#">Daftar</a></li><li class="nav-item"><a class="nav-link" data-view="upcoming" href="#">Mendatang</a></li></ul>' +
+      '<div id="eventCrudArea"></div><div id="eventUpcomingArea" class="d-none"></div>';
+
+    var crud = new CrudModule({
+      key: 'event', title: 'Agenda', subtitle: '', addLabel: 'Tambah Agenda', searchPlaceholder: 'Cari agenda...',
+      listAction: 'getEvents', createAction: 'createEvent', updateAction: 'updateEvent', deleteAction: 'deleteEvent',
+      filters: [
+        { key: 'category', label: 'Kategori', options: ['Kajian', 'Pengajian', 'Rapat', 'Kegiatan Sosial', 'Santunan', 'Buka Bersama', 'Ramadhan', 'Idul Fitri', 'Idul Adha', 'Lainnya'] },
+        { key: 'status', label: 'Status', options: ['scheduled', 'ongoing', 'completed', 'cancelled'] }
+      ],
+      columns: [
+        { key: 'title', label: 'Judul' },
+        { key: 'category', label: 'Kategori' },
+        { key: 'date', label: 'Tanggal', render: function (r) { return formatDateId(r.date) + ' ' + (r.start_time || ''); } },
+        { key: 'location', label: 'Lokasi' },
+        { key: 'speaker', label: 'Pembicara' },
+        { key: 'status', label: 'Status', render: function (r) { return statusBadge(r.status); } },
+        { key: 'is_display', label: 'Display', render: function (r) { return r.is_display ? '<i class="bi bi-tv-fill text-primary-c"></i>' : ''; } }
+      ],
+      fields: [
+        { key: 'title', label: 'Judul Kegiatan', type: 'text', required: true },
+        { key: 'category', label: 'Kategori', type: 'select', required: true, half: true, options: ['Kajian', 'Pengajian', 'Rapat', 'Kegiatan Sosial', 'Santunan', 'Buka Bersama', 'Ramadhan', 'Idul Fitri', 'Idul Adha', 'Lainnya'] },
+        { key: 'date', label: 'Tanggal', type: 'date', required: true, half: true, default: todayYmd() },
+        { key: 'start_time', label: 'Jam Mulai', type: 'time', required: true, half: true },
+        { key: 'end_time', label: 'Jam Selesai', type: 'time', half: true },
+        { key: 'location', label: 'Lokasi', type: 'text', half: true },
+        { key: 'speaker', label: 'Pembicara', type: 'text', half: true },
+        { key: 'description', label: 'Deskripsi', type: 'textarea' },
+        { key: 'status', label: 'Status', type: 'select', half: true, options: ['scheduled', 'ongoing', 'completed', 'cancelled'], default: 'scheduled' },
+        { key: 'is_display', label: 'Tampilkan di Layar TV Masjid', type: 'checkbox' }
+      ]
+    });
+    crud.mount('eventCrudArea');
+
+    el.querySelectorAll('[data-view]').forEach(function (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        el.querySelectorAll('[data-view]').forEach(function (l) { l.classList.remove('active'); });
+        link.classList.add('active');
+        var view = link.getAttribute('data-view');
+        document.getElementById('eventCrudArea').classList.toggle('d-none', view !== 'list');
+        document.getElementById('eventUpcomingArea').classList.toggle('d-none', view !== 'upcoming');
+        if (view === 'upcoming') loadUpcoming();
+      });
+    });
+
+    function loadUpcoming() {
+      var area = document.getElementById('eventUpcomingArea');
+      area.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-success"></div></div>';
+      apiGet('getUpcomingEvents', { limit: 20 }, { silent: true }).then(function (events) {
+        area.innerHTML = events.length ? '<div class="row g-3">' + events.map(function (e) {
+          return '<div class="col-md-4"><div class="card-soft p-3 h-100"><span class="badge-soft badge-info mb-2">' + escapeHtml(e.category) + '</span>' +
+            '<div class="fw-bold">' + escapeHtml(e.title) + '</div>' +
+            '<div class="text-muted-c small mt-1"><i class="bi bi-calendar3 me-1"></i>' + formatDateFullId(e.date) + ' &middot; ' + escapeHtml(e.start_time || '') + '</div>' +
+            (e.location ? '<div class="text-muted-c small"><i class="bi bi-geo-alt me-1"></i>' + escapeHtml(e.location) + '</div>' : '') + '</div></div>';
+        }).join('') + '</div>' : emptyStateHtml('Belum ada agenda mendatang');
+      });
+    }
+  };
+</script>

@@ -1,0 +1,103 @@
+<style>
+  html, body.mms-tv { height: 100%; margin: 0; overflow: hidden; background: #06251a; font-family: var(--font-sans); }
+
+  .tv-screen {
+    height: 100vh; width: 100vw; display: flex; flex-direction: column;
+    color: #fff; position: relative; overflow: hidden;
+    background: radial-gradient(circle at 20% 0%, #113d29 0%, #06251a 55%, #04150f 100%);
+  }
+  .tv-screen.theme-dark { background: radial-gradient(circle at 20% 0%, #1a1a1a 0%, #0a0a0a 60%); }
+  .tv-screen.theme-minimal { background: #ffffff; color: #14532d; }
+  .tv-screen.theme-gold { background: radial-gradient(circle at 20% 0%, #2b230f 0%, #120e05 60%); }
+  .tv-screen.theme-gold .tv-accent, .tv-screen.theme-gold .tv-header-name { color: var(--accent); }
+  .tv-screen.theme-minimal .tv-ticker { background: #14532d; color: #fff; }
+  .tv-screen.theme-minimal .tv-side { background: rgba(15,157,88,0.06); border-color: rgba(15,157,88,0.2); }
+
+  .tv-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1.4rem 2.5rem 0.6rem;
+  }
+  .tv-header-brand { display: flex; align-items: center; gap: 1rem; }
+  .tv-header-brand img { width: 56px; height: 56px; border-radius: 12px; background: #fff; object-fit: cover; }
+  .tv-header-name { font-size: 1.7rem; font-weight: 800; letter-spacing: .01em; }
+  .tv-header-addr { font-size: .95rem; opacity: .75; }
+  .tv-offline-pill {
+    background: rgba(220,38,38,0.15); border: 1px solid rgba(220,38,38,.5); color: #ffb4b4;
+    padding: .3rem .85rem; border-radius: 999px; font-size: .8rem; font-weight: 600;
+    display: flex; align-items: center; gap: .4rem;
+  }
+
+  .tv-body { flex: 1; display: flex; gap: 1.5rem; padding: 0.5rem 2.5rem 1rem; min-height: 0; }
+  .tv-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; position: relative; }
+  .tv-side {
+    width: 340px; flex-shrink: 0; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 22px; padding: 1.3rem; display: flex; flex-direction: column; gap: .55rem;
+  }
+  .tv-side h3 { font-size: 1rem; text-transform: uppercase; letter-spacing: .08em; opacity: .65; margin-bottom: .4rem; }
+  .tv-prayer-row {
+    display: flex; align-items: center; justify-content: space-between; padding: .65rem .85rem;
+    border-radius: 14px; background: rgba(255,255,255,0.03); font-size: 1.15rem; font-weight: 600;
+  }
+  .tv-prayer-row.is-next { background: var(--primary); box-shadow: 0 6px 18px rgba(15,157,88,.4); }
+  .tv-prayer-row .name { display: flex; align-items: center; gap: .5rem; }
+
+  .tv-clock { font-size: 7.5rem; font-weight: 800; letter-spacing: .02em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .tv-date { font-size: 1.5rem; opacity: .9; margin-top: .5rem; }
+  .tv-hijri { font-size: 1.15rem; opacity: .65; margin-top: .15rem; }
+
+  .tv-countdown-label { font-size: 1.6rem; text-transform: uppercase; letter-spacing: .1em; opacity: .85; font-weight: 700; }
+  .tv-countdown-value { font-size: 8rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--accent); }
+
+  .tv-prayer-active-name { font-size: 3.2rem; font-weight: 800; text-transform: uppercase; }
+  .tv-prayer-active-sub { font-size: 1.4rem; opacity: .85; margin-top: .5rem; }
+  .tv-prayer-active-icon { font-size: 5rem; margin-bottom: 1rem; color: var(--accent); }
+
+  .tv-friday-card { text-align: center; }
+  .tv-friday-title { font-size: 2.4rem; font-weight: 800; margin-bottom: 1.2rem; letter-spacing: .05em; }
+  .tv-friday-grid { display: flex; gap: 2.5rem; justify-content: center; }
+  .tv-friday-item .label { font-size: .95rem; opacity: .65; text-transform: uppercase; letter-spacing: .06em; }
+  .tv-friday-item .val { font-size: 1.7rem; font-weight: 700; margin-top: .3rem; }
+
+  .tv-event-card { text-align: center; max-width: 900px; }
+  .tv-event-badge { display: inline-block; background: var(--accent); color: #201a05; font-weight: 700; padding: .3rem 1rem; border-radius: 999px; font-size: .9rem; margin-bottom: 1rem; }
+  .tv-event-title { font-size: 2.6rem; font-weight: 800; margin-bottom: .5rem; }
+  .tv-event-meta { font-size: 1.2rem; opacity: .8; }
+
+  .tv-announce-card { max-width: 950px; text-align: center; }
+  .tv-announce-badge { color: var(--accent); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 1rem; font-size: 1.1rem; }
+  .tv-announce-title { font-size: 2.3rem; font-weight: 800; margin-bottom: .8rem; }
+  .tv-announce-content { font-size: 1.3rem; opacity: .88; line-height: 1.5; }
+
+  .tv-emergency { background: #7f1d1d !important; }
+  .tv-emergency-title { font-size: 2rem; letter-spacing: .1em; font-weight: 800; color: #fecaca; margin-bottom: 1rem; }
+  .tv-emergency-msg { font-size: 2.6rem; font-weight: 700; max-width: 1000px; text-align: center; }
+
+  .tv-donation-card { text-align: center; max-width: 800px; width: 100%; }
+  .tv-donation-title { font-size: 1.9rem; font-weight: 800; margin-bottom: .3rem; }
+  .tv-donation-amounts { font-size: 1.2rem; opacity: .85; margin-bottom: .8rem; }
+  .tv-progress-track { height: 26px; border-radius: 999px; background: rgba(255,255,255,0.1); overflow: hidden; }
+  .tv-progress-fill { height: 100%; background: linear-gradient(90deg, var(--primary), var(--accent)); border-radius: 999px; transition: width .6s ease; }
+
+  .tv-ticker-wrap {
+    background: rgba(0,0,0,0.35); border-top: 1px solid rgba(255,255,255,0.08);
+    padding: .55rem 0; overflow: hidden; white-space: nowrap; flex-shrink: 0;
+  }
+  .tv-ticker-track { display: inline-block; white-space: nowrap; font-size: 1.1rem; font-weight: 600; padding-left: 100%; animation: tvTicker linear infinite; }
+  .tv-ticker-track b { color: var(--accent); margin-right: .5rem; }
+  @keyframes tvTicker { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+
+  .tv-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: .5rem 2.5rem .9rem; font-size: .9rem; opacity: .6;
+  }
+
+  .tv-fade { animation: mmsFadeIn .5s ease; }
+
+  @media (max-width: 900px) {
+    .tv-clock { font-size: 4.2rem; }
+    .tv-countdown-value { font-size: 4.5rem; }
+    .tv-body { flex-direction: column; padding: .5rem 1rem 1rem; }
+    .tv-side { width: 100%; }
+    .tv-header { padding: 1rem 1rem 0; }
+  }
+</style>

@@ -1,0 +1,180 @@
+<script>
+  // ================== USERS ==================
+  PAGE_RENDERERS['users'] = function (containerId) {
+    apiGet('getRoles', {}, { silent: true }).then(function (roles) {
+      var crud = new CrudModule({
+        key: 'user', title: 'Manajemen Users', subtitle: 'Kelola pengguna dan peran akses sistem',
+        listAction: 'getUsers', createAction: 'createUser', updateAction: 'updateUser', deleteAction: 'deleteUser',
+        addLabel: 'Tambah User', searchPlaceholder: 'Cari nama/username/email...',
+        filters: [{ key: 'role_id', label: 'Role', options: roles.map(function (r) { return { value: r.id, label: r.name }; }) }],
+        columns: [
+          { key: 'name', label: 'Nama' },
+          { key: 'username', label: 'Username' },
+          { key: 'role_id', label: 'Role', render: function (r) { var role = roles.filter(function (x) { return x.id === r.role_id; })[0]; return '<span class="badge-soft badge-info">' + escapeHtml(role ? role.name : r.role_id) + '</span>'; } },
+          { key: 'email', label: 'Email' },
+          { key: 'status', label: 'Status', render: function (r) { return statusBadge(r.status); } },
+          { key: 'last_login', label: 'Login Terakhir', render: function (r) { return r.last_login ? formatDateTimeId(r.last_login) : '-'; } }
+        ],
+        fields: [
+          { key: 'name', label: 'Nama Lengkap', type: 'text', required: true, half: true },
+          { key: 'username', label: 'Username', type: 'text', required: true, half: true },
+          { key: 'password', label: 'Password (kosongkan jika tidak diubah)', type: 'text', half: true },
+          { key: 'role_id', label: 'Role', type: 'select', required: true, half: true, options: roles.map(function (r) { return { value: r.id, label: r.name }; }) },
+          { key: 'phone', label: 'Telepon', type: 'text', half: true },
+          { key: 'email', label: 'Email', type: 'text', half: true },
+          { key: 'status', label: 'Status', type: 'select', options: ['active', 'inactive'], default: 'active' }
+        ]
+      });
+      crud.mount(containerId);
+    });
+  };
+
+  // ================== AUDIT LOG ==================
+  PAGE_RENDERERS['audit'] = function (containerId) {
+    var crud = new CrudModule({
+      key: 'audit', title: 'Audit Log', subtitle: 'Riwayat aktivitas seluruh pengguna sistem', canCreate: false, canEdit: false, canDelete: false,
+      listAction: 'getAuditLogs', searchPlaceholder: 'Cari aktivitas...',
+      filters: [
+        { key: 'module', label: 'Modul', options: ['auth', 'finance', 'announcement', 'event', 'prayer', 'imam', 'inventory', 'jamaah', 'donation', 'social_program', 'documents', 'display_settings', 'users', 'roles', 'settings'] },
+        { key: 'action', label: 'Aksi', options: ['login', 'logout', 'create', 'update', 'delete', 'publish', 'unpublish', 'setting_change', 'display_change'] }
+      ],
+      columns: [
+        { key: 'timestamp', label: 'Waktu', render: function (r) { return formatDateTimeId(r.timestamp); } },
+        { key: 'action', label: 'Aksi', render: function (r) { return '<span class="badge-soft badge-info">' + escapeHtml(r.action) + '</span>'; } },
+        { key: 'module', label: 'Modul' },
+        { key: 'description', label: 'Deskripsi' },
+        { key: 'user_id', label: 'User' }
+      ]
+    });
+    crud.mount(containerId);
+  };
+
+  // ================== SETTINGS ==================
+  PAGE_RENDERERS['settings'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<div class="mms-page-title">Pengaturan Masjid</div><div class="mms-page-subtitle">Profil masjid, lokasi, jadwal shalat, dan sistem</div>' +
+      '<ul class="nav nav-pills mb-3">' +
+      '<li class="nav-item"><a class="nav-link active" data-tab="mosque" href="#">Masjid</a></li>' +
+      '<li class="nav-item"><a class="nav-link" data-tab="prayer" href="#">Jadwal Shalat</a></li>' +
+      '<li class="nav-item"><a class="nav-link" data-tab="system" href="#">Sistem</a></li>' +
+      '</ul><div class="card-soft p-3" id="settingsForm"></div>';
+
+    apiGet('getSettings', {}, { silent: true }).then(function (s) {
+      var tabs = {
+        mosque: [
+          ['mosque_name', 'Nama Masjid', 'text'], ['mosque_address', 'Alamat', 'textarea'],
+          ['mosque_phone', 'Telepon', 'text'], ['mosque_email', 'Email', 'text'],
+          ['mosque_description', 'Deskripsi/Tagline', 'text'], ['logo_url', 'URL Logo', 'text'], ['footer_text', 'Teks Footer', 'text']
+        ],
+        system: [['timezone', 'Timezone', 'text'], ['date_format', 'Format Tanggal', 'text'], ['currency', 'Mata Uang', 'text']]
+      };
+
+      function renderTab(tab) {
+        if (tab === 'prayer') { renderPrayerTab(); return; }
+        var fields = tabs[tab];
+        document.getElementById('settingsForm').innerHTML = fields.map(function (f) {
+          var id = 'set_' + f[0];
+          var input = f[2] === 'textarea' ? '<textarea class="form-control" id="' + id + '" rows="2">' + escapeHtml(s[f[0]] || '') + '</textarea>'
+            : '<input type="' + f[2] + '" class="form-control" id="' + id + '" value="' + escapeHtml(s[f[0]] || '') + '">';
+          return '<div class="row mb-3 align-items-center"><label class="col-sm-4 form-label mb-0">' + f[1] + '</label><div class="col-sm-8">' + input + '</div></div>';
+        }).join('') + '<button class="btn btn-mms mt-2" id="settingsSaveBtn"><i class="bi bi-save me-1"></i>Simpan Pengaturan</button>';
+
+        document.getElementById('settingsSaveBtn').addEventListener('click', function () {
+          var data = {};
+          fields.forEach(function (f) { data[f[0]] = document.getElementById('set_' + f[0]).value; s[f[0]] = data[f[0]]; });
+          var restore = setButtonLoading(this, 'Menyimpan...');
+          apiPost('updateSettings', data, { successMessage: 'Pengaturan berhasil disimpan.' }).finally(restore);
+        });
+      }
+
+      /**
+       * Tab Jadwal Shalat dirender khusus (bukan lewat helper generik) karena punya
+       * kebutuhan berbeda: (1) dropdown Provinsi/Kabupaten-Kota diisi dinamis dari API
+       * equran.id (bukan hardcode), (2) grup field Aladhan vs equran.id saling
+       * disembunyikan tergantung provider yang dipilih.
+       */
+      function renderPrayerTab() {
+        var form = document.getElementById('settingsForm');
+        form.innerHTML =
+          '<div class="row mb-3 align-items-center"><label class="col-sm-4 form-label mb-0">Provider Jadwal Shalat</label><div class="col-sm-8">' +
+          '<select class="form-select" id="set_prayer_provider">' +
+          '<option value="equran"' + (s.prayer_provider !== 'aladhan' ? ' selected' : '') + '>equran.id (default, per Provinsi/Kab-Kota)</option>' +
+          '<option value="aladhan"' + (s.prayer_provider === 'aladhan' ? ' selected' : '') + '>Aladhan (per koordinat Lat/Long)</option>' +
+          '</select></div></div>' +
+
+          '<div data-provider-group="equran">' +
+          '<div class="row mb-3 align-items-center"><label class="col-sm-4 form-label mb-0">Provinsi</label><div class="col-sm-8">' +
+          '<select class="form-select" id="set_prayer_provinsi"><option value="">Memuat daftar provinsi...</option></select></div></div>' +
+          '<div class="row mb-3 align-items-center"><label class="col-sm-4 form-label mb-0">Kabupaten/Kota</label><div class="col-sm-8">' +
+          '<select class="form-select" id="set_prayer_kabkota"><option value="">- Pilih provinsi dulu -</option></select></div></div>' +
+          '</div>' +
+
+          '<div data-provider-group="aladhan">' +
+          '<div class="row mb-3 align-items-center"><label class="col-sm-4 form-label mb-0">Latitude</label><div class="col-sm-8"><input type="text" class="form-control" id="set_latitude" value="' + escapeHtml(s.latitude || '') + '"></div></div>' +
+          '<div class="row mb-3 align-items-center"><label class="col-sm-4 form-label mb-0">Longitude</label><div class="col-sm-8"><input type="text" class="form-control" id="set_longitude" value="' + escapeHtml(s.longitude || '') + '"></div></div>' +
+          '<div class="row mb-3 align-items-center"><label class="col-sm-4 form-label mb-0">Metode Perhitungan</label><div class="col-sm-8"><input type="text" class="form-control" id="set_prayer_method" value="' + escapeHtml(s.prayer_method || '') + '"></div></div>' +
+          '</div>' +
+
+          '<div class="row mb-3 align-items-center"><label class="col-sm-4 form-label mb-0">Koreksi Menit (default)</label><div class="col-sm-8"><input type="number" class="form-control" id="set_prayer_correction_minutes" value="' + escapeHtml(s.prayer_correction_minutes || '0') + '"></div></div>' +
+          '<div class="row mb-3 align-items-center"><label class="col-sm-4 form-label mb-0">Arah Kiblat (derajat)</label><div class="col-sm-8"><input type="text" class="form-control" id="set_qibla_direction" value="' + escapeHtml(s.qibla_direction || '') + '"></div></div>' +
+          '<button class="btn btn-mms mt-2" id="settingsSaveBtn"><i class="bi bi-save me-1"></i>Simpan Pengaturan</button>';
+
+        function toggleProviderGroups() {
+          var provider = document.getElementById('set_prayer_provider').value;
+          form.querySelectorAll('[data-provider-group]').forEach(function (grp) {
+            grp.style.display = grp.getAttribute('data-provider-group') === provider ? '' : 'none';
+          });
+        }
+        document.getElementById('set_prayer_provider').addEventListener('change', toggleProviderGroups);
+        toggleProviderGroups();
+
+        function fillSelect(selectEl, options, selectedValue) {
+          selectEl.innerHTML = options.map(function (opt) {
+            return '<option value="' + escapeHtml(opt.value) + '" ' + (opt.value === selectedValue ? 'selected' : '') + '>' + escapeHtml(opt.label) + '</option>';
+          }).join('');
+        }
+
+        function loadKabkota(provinsiValue, selectedKabkota) {
+          var kabkotaEl = document.getElementById('set_prayer_kabkota');
+          kabkotaEl.innerHTML = '<option value="">Memuat...</option>';
+          if (!provinsiValue) { kabkotaEl.innerHTML = '<option value="">- Pilih provinsi dulu -</option>'; return; }
+          apiGet('getEquranKabkotaList', { provinsi: provinsiValue }, { silent: true }).then(function (list) {
+            fillSelect(kabkotaEl, list, selectedKabkota || '');
+          }).catch(function () {
+            kabkotaEl.innerHTML = '<option value="">Gagal memuat daftar kabupaten/kota</option>';
+          });
+        }
+
+        apiGet('getEquranProvinsiList', {}, { silent: true }).then(function (list) {
+          var provinsiEl = document.getElementById('set_prayer_provinsi');
+          fillSelect(provinsiEl, list, s.prayer_provinsi || '');
+          provinsiEl.addEventListener('change', function () { loadKabkota(provinsiEl.value, ''); });
+          loadKabkota(s.prayer_provinsi || provinsiEl.value, s.prayer_kabkota || '');
+        }).catch(function () {
+          document.getElementById('set_prayer_provinsi').innerHTML = '<option value="">Gagal memuat daftar provinsi</option>';
+        });
+
+        document.getElementById('settingsSaveBtn').addEventListener('click', function () {
+          var fieldIds = ['prayer_provider', 'prayer_provinsi', 'prayer_kabkota', 'latitude', 'longitude', 'prayer_method', 'prayer_correction_minutes', 'qibla_direction'];
+          var data = {};
+          fieldIds.forEach(function (f) {
+            var el = document.getElementById('set_' + f);
+            if (el) { data[f] = el.value; s[f] = el.value; }
+          });
+          var restore = setButtonLoading(this, 'Menyimpan...');
+          apiPost('updateSettings', data, { successMessage: 'Pengaturan berhasil disimpan.' }).finally(restore);
+        });
+      }
+
+      el.querySelectorAll('[data-tab]').forEach(function (link) {
+        link.addEventListener('click', function (e) {
+          e.preventDefault();
+          el.querySelectorAll('[data-tab]').forEach(function (l) { l.classList.remove('active'); });
+          link.classList.add('active');
+          renderTab(link.getAttribute('data-tab'));
+        });
+      });
+      renderTab('mosque');
+    });
+  };
+</script>

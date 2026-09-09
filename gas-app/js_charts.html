@@ -1,0 +1,74 @@
+<script>
+  var MMS_CHART_REGISTRY = {};
+  var MMS_CHART_COLORS = ['#0f9d58', '#c9a227', '#2563eb', '#dc2626', '#7c3aed', '#0891b2', '#d97706', '#14532d'];
+
+  function destroyChart_(canvasId) {
+    if (MMS_CHART_REGISTRY[canvasId]) {
+      MMS_CHART_REGISTRY[canvasId].destroy();
+      delete MMS_CHART_REGISTRY[canvasId];
+    }
+  }
+
+  function renderLineChart(canvasId, labels, datasets) {
+    destroyChart_(canvasId);
+    var ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+    MMS_CHART_REGISTRY[canvasId] = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: datasets.map(function (ds, i) {
+          return Object.assign({
+            borderColor: MMS_CHART_COLORS[i % MMS_CHART_COLORS.length],
+            backgroundColor: MMS_CHART_COLORS[i % MMS_CHART_COLORS.length] + '22',
+            tension: 0.35, fill: true, borderWidth: 2, pointRadius: 2
+          }, ds);
+        })
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: datasets.length > 1, position: 'bottom' } },
+        scales: { y: { beginAtZero: true, ticks: { callback: function (v) { return formatRupiah(v); } } } }
+      }
+    });
+  }
+
+  function renderBarChart(canvasId, labels, datasets, horizontal) {
+    destroyChart_(canvasId);
+    var ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+    MMS_CHART_REGISTRY[canvasId] = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: datasets.map(function (ds, i) {
+          return Object.assign({
+            backgroundColor: MMS_CHART_COLORS[i % MMS_CHART_COLORS.length],
+            borderRadius: 6, maxBarThickness: 42
+          }, ds);
+        })
+      },
+      options: {
+        indexAxis: horizontal ? 'y' : 'x',
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: datasets.length > 1, position: 'bottom' } },
+        scales: { x: { ticks: { callback: horizontal ? function (v) { return formatRupiah(v); } : undefined } },
+                  y: { beginAtZero: true, ticks: { callback: !horizontal ? function (v) { return formatRupiah(v); } : undefined } } }
+      }
+    });
+  }
+
+  function renderDoughnutChart(canvasId, labels, data) {
+    destroyChart_(canvasId);
+    var ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+    MMS_CHART_REGISTRY[canvasId] = new Chart(ctx, {
+      type: 'doughnut',
+      data: { labels: labels, datasets: [{ data: data, backgroundColor: MMS_CHART_COLORS, borderWidth: 2, borderColor: '#fff' }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '65%',
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } }
+      }
+    });
+  }
+</script>

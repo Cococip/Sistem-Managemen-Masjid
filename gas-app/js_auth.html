@@ -1,0 +1,67 @@
+<script>
+  var MMS_TOKEN_KEY = 'mms_auth_token';
+  var MMS_USER_KEY = 'mms_auth_user';
+
+  function getAuthToken() {
+    return localStorage.getItem(MMS_TOKEN_KEY) || sessionStorage.getItem(MMS_TOKEN_KEY) || '';
+  }
+  function getAuthUser() {
+    try {
+      var raw = localStorage.getItem(MMS_USER_KEY) || sessionStorage.getItem(MMS_USER_KEY) || 'null';
+      return JSON.parse(raw);
+    } catch (e) { return null; }
+  }
+  /**
+   * persist=true (Ingat saya): simpan di localStorage (bertahan setelah browser ditutup).
+   * persist=false: simpan di sessionStorage (hilang saat tab/browser ditutup).
+   */
+  function setAuthSession(token, user, persist) {
+    var store = persist === false ? sessionStorage : localStorage;
+    var other = persist === false ? localStorage : sessionStorage;
+    store.setItem(MMS_TOKEN_KEY, token);
+    store.setItem(MMS_USER_KEY, JSON.stringify(user));
+    other.removeItem(MMS_TOKEN_KEY);
+    other.removeItem(MMS_USER_KEY);
+  }
+  function clearAuthSession() {
+    localStorage.removeItem(MMS_TOKEN_KEY);
+    localStorage.removeItem(MMS_USER_KEY);
+    sessionStorage.removeItem(MMS_TOKEN_KEY);
+    sessionStorage.removeItem(MMS_USER_KEY);
+  }
+  function isLoggedIn() {
+    return !!getAuthToken() && !!getAuthUser();
+  }
+
+  /**
+   * Dipanggil di awal halaman admin. Jika tidak ada sesi, redirect ke login.
+   * Jika ada, validasi ulang ke server (bukan hanya percaya localStorage).
+   */
+  function guardAdminPage(callback) {
+    if (!isLoggedIn()) {
+      mmsTopNavigate(WEB_APP_URL + '?page=login');
+      return;
+    }
+    var persist = !!localStorage.getItem(MMS_TOKEN_KEY);
+    apiGet('checkSession', {}, { silent: true, silentError: true }).then(function (user) {
+      setAuthSession(getAuthToken(), user, persist);
+      callback(user);
+    }).catch(function () {
+      clearAuthSession();
+      mmsTopNavigate(WEB_APP_URL + '?page=login');
+    });
+  }
+
+  function hasRole(user, roles) {
+    if (!user) return false;
+    if (user.role_id === 'SUPER_ADMIN') return true;
+    return roles.indexOf(user.role_id) !== -1;
+  }
+
+  function doLogout() {
+    apiPost('logout', {}, { silent: true, silentError: true, successMessage: false }).finally(function () {
+      clearAuthSession();
+      mmsTopNavigate(WEB_APP_URL + '?page=login');
+    });
+  }
+</script>

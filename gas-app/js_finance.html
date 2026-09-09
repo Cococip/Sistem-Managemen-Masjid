@@ -1,0 +1,318 @@
+<script>
+  // ================== FINANCE DASHBOARD ==================
+  PAGE_RENDERERS['finance-dashboard'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML =
+      '<div class="mms-page-title">Dashboard Keuangan</div>' +
+      '<div class="mms-page-subtitle">Saldo dihitung otomatis dari seluruh transaksi tercatat</div>' +
+      '<div class="row g-3" id="finCards"></div>' +
+      '<div class="row g-3 mt-1">' +
+      '<div class="col-lg-8"><div class="card-soft p-3 h-100">' +
+      '<div class="d-flex justify-content-between align-items-center mb-2"><h6 class="fw-bold mb-0">Arus Kas Bulanan</h6>' +
+      '<select class="form-select form-select-sm" style="width:auto" id="finPeriodSelect"><option value="month">Bulan Ini</option><option value="week">Minggu Ini</option><option value="year">Tahun Ini</option><option value="today">Hari Ini</option></select></div>' +
+      '<div style="height:280px"><canvas id="chartCashflow"></canvas></div></div></div>' +
+      '<div class="col-lg-4"><div class="card-soft p-3 h-100"><h6 class="fw-bold mb-2">Saldo per Sumber Dana</h6><div id="finByFund"></div></div></div>' +
+      '</div>' +
+      '<div class="row g-3 mt-1">' +
+      '<div class="col-lg-6"><div class="card-soft p-3"><h6 class="fw-bold mb-2">Pemasukan per Kategori</h6><div style="height:240px"><canvas id="chartIncomeCat"></canvas></div></div></div>' +
+      '<div class="col-lg-6"><div class="card-soft p-3"><h6 class="fw-bold mb-2">Pengeluaran per Kategori</h6><div style="height:240px"><canvas id="chartExpenseCat"></canvas></div></div></div>' +
+      '</div>' +
+      '<div class="card-soft p-3 mt-3"><h6 class="fw-bold mb-2">Transaksi Terbaru</h6><div class="table-responsive"><table class="table table-mms mb-0"><thead><tr><th>Tanggal</th><th>No Transaksi</th><th>Jenis</th><th>Nominal</th><th>Status</th></tr></thead><tbody id="finRecentTx"></tbody></table></div></div>';
+
+    function loadSummary() {
+      apiGet('getFinanceDashboard', {}, { silent: true }).then(function (d) {
+        document.getElementById('finCards').innerHTML = [
+          { label: 'Saldo Kas', value: formatRupiah(d.saldo), icon: 'bi-wallet2', color: 'primary' },
+          { label: 'Pemasukan Hari Ini', value: formatRupiah(d.incomeToday), icon: 'bi-arrow-down-circle', color: 'success' },
+          { label: 'Pengeluaran Hari Ini', value: formatRupiah(d.expenseToday), icon: 'bi-arrow-up-circle', color: 'danger' },
+          { label: 'Pemasukan Bulan Ini', value: formatRupiah(d.incomeThisMonth), icon: 'bi-calendar-plus', color: 'success' },
+          { label: 'Pengeluaran Bulan Ini', value: formatRupiah(d.expenseThisMonth), icon: 'bi-calendar-minus', color: 'danger' }
+        ].map(statCardHtml).join('');
+
+        document.getElementById('finByFund').innerHTML = d.byFundSource.length ? d.byFundSource.map(function (f) {
+          return '<div class="d-flex justify-content-between border-bottom py-2"><span>' + escapeHtml(f.name) + '</span><b class="' + (f.balance < 0 ? 'text-danger' : '') + '">' + formatRupiah(f.balance) + '</b></div>';
+        }).join('') : emptyStateHtml('Belum ada sumber dana');
+
+        document.getElementById('finRecentTx').innerHTML = d.recentTransactions.length ? d.recentTransactions.map(function (t) {
+          return '<tr><td>' + formatDateId(t.date) + '</td><td>' + escapeHtml(t.transaction_number) + '</td>' +
+            '<td>' + (t.type === 'income' ? '<span class="badge-soft badge-success">Pemasukan</span>' : '<span class="badge-soft badge-danger">Pengeluaran</span>') + '</td>' +
+            '<td>' + formatRupiah(t.amount) + '</td><td>' + statusBadge(t.status) + '</td></tr>';
+        }).join('') : '<tr><td colspan="5">' + emptyStateHtml('Belum ada transaksi') + '</td></tr>';
+      });
+    }
+
+    function loadReport(period) {
+      apiGet('getFinanceReport', { period: period }, { silent: true }).then(function (r) {
+        renderLineChart('chartCashflow', r.monthlyCashflow.map(function (m) { return m.period; }),
+          [{ label: 'Pemasukan', data: r.monthlyCashflow.map(function (m) { return m.income; }), borderColor: '#0f9d58', backgroundColor: '#0f9d5822' },
+           { label: 'Pengeluaran', data: r.monthlyCashflow.map(function (m) { return m.expense; }), borderColor: '#dc2626', backgroundColor: '#dc262622' }]);
+        renderDoughnutChart('chartIncomeCat', r.incomeByCategory.map(function (c) { return c.key; }), r.incomeByCategory.map(function (c) { return c.total; }));
+        renderDoughnutChart('chartExpenseCat', r.expenseByCategory.map(function (c) { return c.key; }), r.expenseByCategory.map(function (c) { return c.total; }));
+      });
+    }
+
+    document.getElementById('finPeriodSelect').addEventListener('change', function (e) { loadReport(e.target.value); });
+    loadSummary();
+    loadReport('month');
+  };
+
+  function statusBadge(status) {
+    var map = { verified: 'badge-success', pending: 'badge-warning', rejected: 'badge-danger', active: 'badge-success', draft: 'badge-muted', published: 'badge-success', scheduled: 'badge-info', cancelled: 'badge-danger', completed: 'badge-success' };
+    return '<span class="badge-soft ' + (map[status] || 'badge-muted') + '">' + escapeHtml(status || '-') + '</span>';
+  }
+
+  // ================== INCOME & EXPENSE ==================
+  function renderTransactionCrud(containerId, type) {
+    var isIncome = type === 'income';
+    Promise.all([
+      apiGet('getFinanceCategories', { type: type }, { silent: true }),
+      apiGet('getFundSources', {}, { silent: true })
+    ]).then(function (res) {
+      var categories = res[0], fundSources = res[1];
+      var crud = new CrudModule({
+        key: type, title: isIncome ? 'Pemasukan' : 'Pengeluaran',
+        subtitle: isIncome ? 'Catat seluruh pemasukan kas masjid' : 'Catat seluruh pengeluaran kas masjid',
+        listAction: 'getTransactions', createAction: isIncome ? 'createIncome' : 'createExpense',
+        updateAction: isIncome ? 'updateIncome' : 'updateExpense', deleteAction: isIncome ? 'deleteIncome' : 'deleteExpense',
+        fixedParams: { type: type }, addLabel: 'Tambah ' + (isIncome ? 'Pemasukan' : 'Pengeluaran'),
+        searchPlaceholder: 'Cari no. transaksi / keterangan...',
+        transformItems: function (items) {
+          return items.map(function (r) {
+            var copy = Object.assign({}, r);
+            copy[isIncome ? 'payer' : 'recipient'] = r.party;
+            return copy;
+          });
+        },
+        filters: [
+          { key: 'status', label: 'Status', options: ['verified', 'pending', 'rejected'] },
+          { key: 'category_id', label: 'Kategori', options: categories.map(function (c) { return { value: c.id, label: c.name }; }) }
+        ],
+        columns: [
+          { key: 'date', label: 'Tanggal', render: function (r) { return formatDateId(r.date); } },
+          { key: 'transaction_number', label: 'No Transaksi' },
+          { key: 'category_id', label: 'Kategori', render: function (r) { var c = categories.filter(function (x) { return x.id === r.category_id; })[0]; return escapeHtml(c ? c.name : r.category_id); } },
+          { key: 'amount', label: 'Nominal', render: function (r) { return '<b>' + formatRupiah(r.amount) + '</b>'; } },
+          { key: 'payment_method', label: 'Metode', render: function (r) { return '<span class="text-uppercase">' + escapeHtml(r.payment_method) + '</span>'; } },
+          { key: 'status', label: 'Status', render: function (r) { return statusBadge(r.status); } },
+          { key: 'is_public', label: 'Publik', render: function (r) { return r.is_public ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-dash-circle text-muted-c"></i>'; } }
+        ],
+        fields: [
+          { key: 'date', label: 'Tanggal', type: 'date', required: true, half: true, default: todayYmd() },
+          { key: 'amount', label: 'Nominal (Rp)', type: 'number', required: true, half: true },
+          { key: 'category_id', label: 'Kategori', type: 'select', required: true, half: true, options: categories.map(function (c) { return { value: c.id, label: c.name }; }) },
+          { key: 'fund_source_id', label: 'Sumber Dana', type: 'select', required: true, half: true, options: fundSources.map(function (f) { return { value: f.id, label: f.name }; }) },
+          { key: 'payment_method', label: 'Metode Pembayaran', type: 'select', required: true, half: true, options: ['cash', 'transfer', 'qris', 'bank', 'lainnya'] },
+          { key: isIncome ? 'payer' : 'recipient', label: isIncome ? 'Pemberi' : 'Penerima', type: 'text', half: true },
+          { key: 'description', label: 'Keterangan', type: 'textarea' },
+          { key: 'is_public', label: 'Tampilkan di Transparansi Publik', type: 'checkbox', default: true },
+          { key: 'status', label: 'Status', type: 'select', options: ['verified', 'pending', 'rejected'], default: 'verified' }
+        ],
+        extraActions: function (row) {
+          return [{ label: 'Cetak Bukti', icon: 'bi-printer', onClick: function (r) { printReceipt(r, type, categories, fundSources); } }];
+        }
+      });
+      crud.mount(containerId);
+    });
+  }
+  PAGE_RENDERERS['income'] = function (id) { renderTransactionCrud(id, 'income'); };
+  PAGE_RENDERERS['expense'] = function (id) { renderTransactionCrud(id, 'expense'); };
+
+  function printReceipt(row, type, categories, fundSources) {
+    apiGet('getPublicSettings', {}, { silent: true }).then(function (s) {
+      var cat = categories.filter(function (c) { return c.id === row.category_id; })[0];
+      var win = window.open('', '_blank');
+      win.document.write('<html><head><title>Bukti Transaksi</title><style>' +
+        'body{font-family:Arial,sans-serif;padding:30px;max-width:420px;margin:0 auto}' +
+        'h2{text-align:center;margin-bottom:0}p.sub{text-align:center;color:#666;margin-top:4px}' +
+        'table{width:100%;border-collapse:collapse;margin-top:20px}td{padding:6px 0;font-size:14px}' +
+        'td.label{color:#666;width:40%}hr{border:none;border-top:1px dashed #999;margin:16px 0}' +
+        '.amount{font-size:20px;font-weight:bold;text-align:center;margin:14px 0}</style></head><body>' +
+        '<h2>' + escapeHtml(s.mosque_name || 'Masjid') + '</h2><p class="sub">BUKTI TRANSAKSI ' + (type === 'income' ? 'PEMASUKAN' : 'PENGELUARAN') + '</p><hr>' +
+        '<table>' +
+        '<tr><td class="label">No. Transaksi</td><td>: ' + escapeHtml(row.transaction_number) + '</td></tr>' +
+        '<tr><td class="label">Tanggal</td><td>: ' + formatDateId(row.date) + '</td></tr>' +
+        '<tr><td class="label">Kategori</td><td>: ' + escapeHtml(cat ? cat.name : row.category_id) + '</td></tr>' +
+        '<tr><td class="label">' + (type === 'income' ? 'Pemberi' : 'Penerima') + '</td><td>: ' + escapeHtml(row.party || '-') + '</td></tr>' +
+        '<tr><td class="label">Keterangan</td><td>: ' + escapeHtml(row.description || '-') + '</td></tr>' +
+        '</table><div class="amount">' + formatRupiah(row.amount) + '</div><hr>' +
+        '<p style="text-align:center;font-size:12px;color:#888">Dicetak otomatis oleh Masjid Management System</p>' +
+        '<script>window.onload=function(){window.print();}<\/script></body></html>');
+      win.document.close();
+    });
+  }
+
+  // ================== TRANSACTIONS (combined view) ==================
+  PAGE_RENDERERS['transactions'] = function (containerId) {
+    Promise.all([apiGet('getFinanceCategories', {}, { silent: true }), apiGet('getFundSources', {}, { silent: true })]).then(function (res) {
+      var categories = res[0], fundSources = res[1];
+      var nameOf = function (list, id) { var f = list.filter(function (x) { return x.id === id; })[0]; return f ? f.name : id; };
+      var crud = new CrudModule({
+        key: 'alltx', title: 'Transaksi', subtitle: 'Seluruh transaksi pemasukan dan pengeluaran', canCreate: false, canEdit: false, canDelete: false,
+        listAction: 'getTransactions', searchPlaceholder: 'Cari transaksi...', exportCsv: exportTransactionsCsv,
+        filters: [
+          { key: 'type', label: 'Jenis', options: [{ value: 'income', label: 'Pemasukan' }, { value: 'expense', label: 'Pengeluaran' }] },
+          { key: 'status', label: 'Status', options: ['verified', 'pending', 'rejected'] },
+          { key: 'payment_method', label: 'Metode', options: ['cash', 'transfer', 'qris', 'bank', 'lainnya'] },
+          { key: 'fund_source_id', label: 'Sumber Dana', options: fundSources.map(function (f) { return { value: f.id, label: f.name }; }) }
+        ],
+        columns: [
+          { key: 'date', label: 'Tanggal', render: function (r) { return formatDateId(r.date); } },
+          { key: 'transaction_number', label: 'No Transaksi', render: function (r) { return '<a href="#" onclick="showTxDetail(\'' + r.id + '\');return false;">' + escapeHtml(r.transaction_number) + '</a>'; } },
+          { key: 'type', label: 'Jenis', render: function (r) { return r.type === 'income' ? '<span class="badge-soft badge-success">Pemasukan</span>' : '<span class="badge-soft badge-danger">Pengeluaran</span>'; } },
+          { key: 'category_id', label: 'Kategori', render: function (r) { return escapeHtml(nameOf(categories, r.category_id)); } },
+          { key: 'fund_source_id', label: 'Sumber Dana', render: function (r) { return escapeHtml(nameOf(fundSources, r.fund_source_id)); } },
+          { key: 'amount', label: 'Nominal', render: function (r) { return '<b class="' + (r.type === 'income' ? 'text-primary-c' : 'text-danger') + '">' + (r.type === 'income' ? '+' : '-') + formatRupiah(r.amount) + '</b>'; } },
+          { key: 'payment_method', label: 'Metode' },
+          { key: 'status', label: 'Status', render: function (r) { return statusBadge(r.status); } }
+        ]
+      });
+      crud.mount(containerId);
+    });
+  };
+
+  function exportTransactionsCsv() {
+    apiGet('exportTransactionsCsv', { period: 'year' }, { silent: true }).then(function (res) {
+      var blob = new Blob([res.csv], { type: 'text/csv;charset=utf-8;' });
+      var link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'transaksi-' + todayYmd() + '.csv';
+      link.click();
+    });
+  }
+
+  function showTxDetail(id) {
+    apiGet('getTransactionDetail', { id: id }, { silent: true }).then(function (t) {
+      var modalId = 'txDetailModal';
+      var old = document.getElementById(modalId); if (old) old.remove();
+      var html = '<div class="modal fade" id="' + modalId + '"><div class="modal-dialog modal-dialog-centered"><div class="modal-content">' +
+        '<div class="modal-header"><h5 class="modal-title">Detail Transaksi</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>' +
+        '<div class="modal-body"><table class="table table-borderless mb-0">' +
+        row('No Transaksi', t.transaction_number) + row('Tanggal', formatDateId(t.date)) +
+        row('Jenis', t.type === 'income' ? 'Pemasukan' : 'Pengeluaran') + row('Kategori', t.category_name) +
+        row('Sumber Dana', t.fund_source_name) + row('Nominal', '<b>' + formatRupiah(t.amount) + '</b>') +
+        row('Metode', t.payment_method) + row(t.type === 'income' ? 'Pemberi' : 'Penerima', t.party || '-') +
+        row('Deskripsi', t.description || '-') + row('Dibuat oleh', t.created_by_name) + row('Dibuat pada', formatDateTimeId(t.created_at)) +
+        '</table></div></div></div></div>';
+      function row(label, val) { return '<tr><td class="text-muted-c" style="width:38%">' + label + '</td><td>' + escapeHtml(String(val)) + '</td></tr>'; }
+      document.body.insertAdjacentHTML('beforeend', html);
+      new bootstrap.Modal(document.getElementById(modalId)).show();
+    });
+  }
+
+  // ================== CATEGORIES ==================
+  PAGE_RENDERERS['categories'] = function (containerId) {
+    var crud = new CrudModule({
+      key: 'category', title: 'Kategori Keuangan', subtitle: 'Kategori pemasukan dan pengeluaran (dinamis, tidak hardcode)',
+      listAction: 'getFinanceCategories', createAction: 'createFinanceCategory', updateAction: 'updateFinanceCategory', deleteAction: 'deleteFinanceCategory',
+      addLabel: 'Tambah Kategori', searchPlaceholder: false,
+      filters: [{ key: 'type', label: 'Tipe', options: [{ value: 'income', label: 'Pemasukan' }, { value: 'expense', label: 'Pengeluaran' }] }],
+      columns: [
+        { key: 'name', label: 'Nama Kategori' },
+        { key: 'type', label: 'Tipe', render: function (r) { return r.type === 'income' ? '<span class="badge-soft badge-success">Pemasukan</span>' : '<span class="badge-soft badge-danger">Pengeluaran</span>'; } },
+        { key: 'description', label: 'Deskripsi' },
+        { key: 'status', label: 'Status', render: function (r) { return statusBadge(r.status); } }
+      ],
+      fields: [
+        { key: 'name', label: 'Nama Kategori', type: 'text', required: true },
+        { key: 'type', label: 'Tipe', type: 'select', required: true, options: [{ value: 'income', label: 'Pemasukan' }, { value: 'expense', label: 'Pengeluaran' }] },
+        { key: 'description', label: 'Deskripsi', type: 'textarea' },
+        { key: 'status', label: 'Status', type: 'select', options: ['active', 'inactive'], default: 'active' }
+      ]
+    });
+    crud.mount(containerId);
+  };
+
+  // ================== FUND SOURCES ==================
+  PAGE_RENDERERS['fund-sources'] = function (containerId) {
+    var crud = new CrudModule({
+      key: 'fundsource', title: 'Sumber Dana', subtitle: 'Kelola sumber dana masjid (Kas Umum, Dana Pembangunan, dsb)',
+      listAction: 'getFundSources', createAction: 'createFundSource', updateAction: 'updateFundSource', deleteAction: 'deleteFundSource',
+      addLabel: 'Tambah Sumber Dana', searchPlaceholder: false,
+      columns: [
+        { key: 'name', label: 'Nama Sumber Dana' },
+        { key: 'description', label: 'Deskripsi' },
+        { key: 'status', label: 'Status', render: function (r) { return statusBadge(r.status); } }
+      ],
+      fields: [
+        { key: 'name', label: 'Nama Sumber Dana', type: 'text', required: true },
+        { key: 'description', label: 'Deskripsi', type: 'textarea' },
+        { key: 'status', label: 'Status', type: 'select', options: ['active', 'inactive'], default: 'active' }
+      ]
+    });
+    crud.mount(containerId);
+  };
+
+  // ================== REPORTS ==================
+  PAGE_RENDERERS['reports'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML =
+      '<div class="mms-page-title">Laporan Keuangan</div>' +
+      '<div class="mms-page-subtitle">Laporan pemasukan, pengeluaran, arus kas, dan per kategori/sumber dana</div>' +
+      '<div class="card-soft p-3 mb-3"><div class="d-flex flex-wrap gap-2 align-items-center">' +
+      '<select class="form-select" style="max-width:180px" id="repPeriod"><option value="today">Hari Ini</option><option value="week">Minggu Ini</option><option value="month" selected>Bulan Ini</option><option value="year">Tahun Ini</option><option value="custom">Custom</option></select>' +
+      '<input type="date" class="form-control d-none" style="max-width:170px" id="repStart">' +
+      '<input type="date" class="form-control d-none" style="max-width:170px" id="repEnd">' +
+      '<button class="btn btn-mms" id="repLoadBtn"><i class="bi bi-search me-1"></i>Tampilkan</button>' +
+      '<button class="btn btn-outline-mms ms-auto" onclick="window.print()"><i class="bi bi-printer me-1"></i>Cetak / PDF</button>' +
+      '</div></div>' +
+      '<div id="repContent"></div>';
+
+    document.getElementById('repPeriod').addEventListener('change', function () {
+      var custom = this.value === 'custom';
+      document.getElementById('repStart').classList.toggle('d-none', !custom);
+      document.getElementById('repEnd').classList.toggle('d-none', !custom);
+    });
+
+    function load() {
+      var period = document.getElementById('repPeriod').value;
+      var params = { period: period, start_date: document.getElementById('repStart').value, end_date: document.getElementById('repEnd').value };
+      apiGet('getFinanceReport', params, { silent: true }).then(function (r) {
+        var html = '<div class="row g-3">' +
+          statCardHtml({ label: 'Total Pemasukan', value: formatRupiah(r.totalIncome), icon: 'bi-arrow-down-circle', color: 'success' }) +
+          statCardHtml({ label: 'Total Pengeluaran', value: formatRupiah(r.totalExpense), icon: 'bi-arrow-up-circle', color: 'danger' }) +
+          statCardHtml({ label: 'Arus Kas Bersih', value: formatRupiah(r.net), icon: 'bi-graph-up', color: r.net >= 0 ? 'success' : 'danger' }) +
+          '</div>' +
+          '<div class="row g-3 mt-1">' +
+          '<div class="col-lg-6"><div class="card-soft p-3"><h6 class="fw-bold">Pemasukan per Kategori</h6><div style="height:260px"><canvas id="repIncomeCat"></canvas></div></div></div>' +
+          '<div class="col-lg-6"><div class="card-soft p-3"><h6 class="fw-bold">Pengeluaran per Kategori</h6><div style="height:260px"><canvas id="repExpenseCat"></canvas></div></div></div>' +
+          '</div>' +
+          '<div class="row g-3 mt-1">' +
+          '<div class="col-lg-6"><div class="card-soft p-3"><h6 class="fw-bold">Pemasukan per Sumber Dana</h6><div style="height:240px"><canvas id="repIncomeFund"></canvas></div></div></div>' +
+          '<div class="col-lg-6"><div class="card-soft p-3"><h6 class="fw-bold">Pengeluaran per Sumber Dana</h6><div style="height:240px"><canvas id="repExpenseFund"></canvas></div></div></div>' +
+          '</div>' +
+          '<div class="card-soft p-3 mt-3"><h6 class="fw-bold">Arus Kas Bulanan</h6><div style="height:260px"><canvas id="repCashflow"></canvas></div></div>';
+        document.getElementById('repContent').innerHTML = html;
+        renderDoughnutChart('repIncomeCat', r.incomeByCategory.map(function (c) { return c.key; }), r.incomeByCategory.map(function (c) { return c.total; }));
+        renderDoughnutChart('repExpenseCat', r.expenseByCategory.map(function (c) { return c.key; }), r.expenseByCategory.map(function (c) { return c.total; }));
+        renderBarChart('repIncomeFund', r.incomeByFundSource.map(function (c) { return c.key; }), [{ label: 'Pemasukan', data: r.incomeByFundSource.map(function (c) { return c.total; }) }], true);
+        renderBarChart('repExpenseFund', r.expenseByFundSource.map(function (c) { return c.key; }), [{ label: 'Pengeluaran', data: r.expenseByFundSource.map(function (c) { return c.total; }) }], true);
+        renderLineChart('repCashflow', r.monthlyCashflow.map(function (m) { return m.period; }),
+          [{ label: 'Pemasukan', data: r.monthlyCashflow.map(function (m) { return m.income; }), borderColor: '#0f9d58' },
+           { label: 'Pengeluaran', data: r.monthlyCashflow.map(function (m) { return m.expense; }), borderColor: '#dc2626' }]);
+      });
+    }
+    document.getElementById('repLoadBtn').addEventListener('click', load);
+    load();
+  };
+
+  // ================== TRANSPARENCY (admin preview) ==================
+  PAGE_RENDERERS['transparency-admin'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<div class="mms-page-title">Transparansi Keuangan (Preview Publik)</div>' +
+      '<div class="mms-page-subtitle">Halaman ini menampilkan pratinjau data yang tampil di halaman publik /transparansi. Hanya transaksi bertanda "Publik" yang tampil.</div>' +
+      '<div class="mb-3"><a class="btn btn-outline-mms" href="' + WEB_APP_URL + '?page=public&view=transparansi" target="_blank"><i class="bi bi-box-arrow-up-right me-1"></i>Buka Halaman Publik</a></div>' +
+      '<div id="transAdminContent"></div>';
+    apiGet('getPublicTransparency', {}, { silent: true }).then(function (d) {
+      var content = document.getElementById('transAdminContent');
+      content.innerHTML = '<div class="row g-3">' +
+        statCardHtml({ label: 'Saldo', value: formatRupiah(d.saldo), icon: 'bi-wallet2', color: 'primary' }) +
+        statCardHtml({ label: 'Pemasukan Bulan Ini', value: formatRupiah(d.incomeThisMonth), icon: 'bi-arrow-down-circle', color: 'success' }) +
+        statCardHtml({ label: 'Pengeluaran Bulan Ini', value: formatRupiah(d.expenseThisMonth), icon: 'bi-arrow-up-circle', color: 'danger' }) +
+        '</div><div class="card-soft p-3 mt-3"><h6 class="fw-bold mb-2">Transaksi Publik Terbaru</h6><div class="table-responsive"><table class="table table-mms mb-0"><thead><tr><th>Tanggal</th><th>Jenis</th><th>Kategori</th><th>Nominal</th></tr></thead><tbody>' +
+        (d.transactions.items.length ? d.transactions.items.map(function (t) {
+          return '<tr><td>' + formatDateId(t.date) + '</td><td>' + (t.type === 'income' ? 'Pemasukan' : 'Pengeluaran') + '</td><td>' + escapeHtml(t.category) + '</td><td>' + formatRupiah(t.amount) + '</td></tr>';
+        }).join('') : '<tr><td colspan="4">' + emptyStateHtml('Belum ada transaksi publik') + '</td></tr>') +
+        '</tbody></table></div></div>';
+    });
+  };
+</script>

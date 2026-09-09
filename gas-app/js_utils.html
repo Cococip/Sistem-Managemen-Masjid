@@ -1,0 +1,210 @@
+<script>
+  /**
+   * Navigasi top-level dari dalam sandbox iframe Apps Script (userCodeAppPanel).
+   * `window.top.location.href = url` TIDAK cukup di sini: kalau dipanggil dari dalam
+   * callback async (.then()/setTimeout), sandbox Apps Script menganggapnya bukan aksi
+   * pengguna langsung dan memblokirnya (X-Frame-Options sameorigin pada script.google.com).
+   * Simulasi klik pada elemen <a target="_top"> sungguhan terbukti reliable karena
+   * Apps Script secara khusus menangani navigasi lewat link/form target="_top".
+   */
+  function mmsTopNavigate(url) {
+    var a = document.createElement('a');
+    a.href = url;
+    a.target = '_top';
+    a.rel = 'opener';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  // ================== FORMAT ==================
+  function formatRupiah(amount) {
+    var n = Math.round(Number(amount) || 0);
+    var neg = n < 0; n = Math.abs(n);
+    var s = String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return (neg ? '-Rp ' : 'Rp ') + s;
+  }
+
+  var MMS_BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  var MMS_HARI = ['Minggu','Senin','Selasa','Rabu','Kamis',"Jumat",'Sabtu'];
+
+  function formatDateId(dateStr) {
+    if (!dateStr) return '-';
+    var d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.getDate() + ' ' + MMS_BULAN[d.getMonth()] + ' ' + d.getFullYear();
+  }
+
+  function formatDateFullId(dateStr) {
+    if (!dateStr) return '-';
+    var d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return MMS_HARI[d.getDay()] + ', ' + formatDateId(dateStr);
+  }
+
+  function formatDateTimeId(dateStr) {
+    if (!dateStr) return '-';
+    var d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    var hh = String(d.getHours()).padStart(2, '0');
+    var mm = String(d.getMinutes()).padStart(2, '0');
+    return formatDateId(dateStr) + ' ' + hh + ':' + mm;
+  }
+
+  function todayYmd() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  function escapeHtml(str) {
+    if (str === undefined || str === null) return '';
+    return String(str).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[c];
+    });
+  }
+
+  function debounce(fn, delay) {
+    var timer = null;
+    return function () {
+      var args = arguments, ctx = this;
+      clearTimeout(timer);
+      timer = setTimeout(function () { fn.apply(ctx, args); }, delay || 300);
+    };
+  }
+
+  function qs(params) {
+    var parts = [];
+    Object.keys(params || {}).forEach(function (k) {
+      if (params[k] === undefined || params[k] === null || params[k] === '') return;
+      parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+    });
+    return parts.join('&');
+  }
+
+  // ================== TOAST ==================
+  function ensureToastContainer() {
+    var el = document.getElementById('mmsToastContainer');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'mmsToastContainer';
+      el.className = 'mms-toast-container';
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+
+  var TOAST_ICONS = {
+    success: 'bi-check-circle-fill', error: 'bi-x-circle-fill',
+    warning: 'bi-exclamation-triangle-fill', info: 'bi-info-circle-fill'
+  };
+
+  function showToast(message, type) {
+    type = type || 'info';
+    var container = ensureToastContainer();
+    var el = document.createElement('div');
+    el.className = 'mms-toast toast-' + type;
+    el.innerHTML = '<i class="bi ' + (TOAST_ICONS[type] || TOAST_ICONS.info) + ' icon text-' + (type === 'error' ? 'danger' : type === 'success' ? 'success' : type) + '"></i>' +
+      '<div class="msg">' + escapeHtml(message) + '</div>';
+    container.appendChild(el);
+    setTimeout(function () {
+      el.style.transition = 'opacity .3s ease';
+      el.style.opacity = '0';
+      setTimeout(function () { el.remove(); }, 300);
+    }, 4000);
+  }
+  function toastSuccess(msg) { showToast(msg || 'Data berhasil disimpan.', 'success'); }
+  function toastError(msg) { showToast(msg || 'Terjadi kesalahan.', 'error'); }
+  function toastWarning(msg) { showToast(msg || 'Data belum lengkap.', 'warning'); }
+  function toastInfo(msg) { showToast(msg || 'Data sedang diperbarui.', 'info'); }
+
+  // ================== CONFIRM MODAL ==================
+  function confirmAction(message, onConfirm, opts) {
+    opts = opts || {};
+    var modalEl = document.getElementById('mmsConfirmModal');
+    if (!modalEl) {
+      modalEl = document.createElement('div');
+      modalEl.className = 'modal fade';
+      modalEl.id = 'mmsConfirmModal';
+      modalEl.innerHTML =
+        '<div class="modal-dialog modal-dialog-centered"><div class="modal-content">' +
+        '<div class="modal-header"><h5 class="modal-title"><i class="bi bi-question-circle text-warning me-2"></i><span id="mmsConfirmTitle">Konfirmasi</span></h5>' +
+        '<button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>' +
+        '<div class="modal-body" id="mmsConfirmBody">Apakah Anda yakin?</div>' +
+        '<div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Batal</button>' +
+        '<button type="button" class="btn btn-danger" id="mmsConfirmOkBtn">Hapus</button></div>' +
+        '</div></div>';
+      document.body.appendChild(modalEl);
+    }
+    document.getElementById('mmsConfirmTitle').textContent = opts.title || 'Konfirmasi';
+    document.getElementById('mmsConfirmBody').textContent = message;
+    var okBtn = document.getElementById('mmsConfirmOkBtn');
+    okBtn.textContent = opts.okLabel || 'Hapus';
+    okBtn.className = 'btn ' + (opts.okClass || 'btn-danger');
+    var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    var newOkBtn = okBtn.cloneNode(true);
+    okBtn.parentNode.replaceChild(newOkBtn, okBtn);
+    newOkBtn.addEventListener('click', function () {
+      modal.hide();
+      onConfirm();
+    });
+    modal.show();
+  }
+
+  // ================== LOADING OVERLAY ==================
+  var mmsLoadingCount = 0;
+  function showLoading() {
+    mmsLoadingCount++;
+    var el = document.getElementById('mmsLoadingOverlay');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'mmsLoadingOverlay';
+      el.className = 'mms-overlay-loading';
+      el.innerHTML = '<div class="text-center"><div class="spinner-border text-success" role="status"></div>' +
+        '<div class="mt-2 fw-semibold text-secondary">Memuat...</div></div>';
+      document.body.appendChild(el);
+    }
+    el.style.display = 'flex';
+  }
+  function hideLoading() {
+    mmsLoadingCount = Math.max(0, mmsLoadingCount - 1);
+    if (mmsLoadingCount === 0) {
+      var el = document.getElementById('mmsLoadingOverlay');
+      if (el) el.style.display = 'none';
+    }
+  }
+
+  function setButtonLoading(btn, loadingText) {
+    if (!btn) return function () {};
+    var original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>' + (loadingText || 'Menyimpan...');
+    return function restore() { btn.disabled = false; btn.innerHTML = original; };
+  }
+
+  function emptyStateHtml(message, addLabel, onAddId) {
+    return '<div class="mms-empty"><i class="bi bi-inbox"></i><div class="fw-semibold mb-2">' + escapeHtml(message || 'Belum ada data') + '</div>' +
+      (addLabel ? '<button class="btn btn-mms btn-sm" id="' + onAddId + '"><i class="bi bi-plus-lg me-1"></i>' + escapeHtml(addLabel) + '</button>' : '') + '</div>';
+  }
+
+  function skeletonRows(cols, rows) {
+    var html = '';
+    for (var r = 0; r < (rows || 4); r++) {
+      html += '<tr>';
+      for (var c = 0; c < cols; c++) html += '<td><div class="skeleton" style="height:14px;width:' + (60 + Math.random() * 30) + '%"></div></td>';
+      html += '</tr>';
+    }
+    return html;
+  }
+
+  function paginationHtml(pagination, onPageFnName) {
+    if (!pagination) return '';
+    var p = pagination;
+    var html = '<div class="mms-pagination"><div class="text-muted-c">Menampilkan ' +
+      (p.total === 0 ? 0 : ((p.page - 1) * p.pageSize + 1)) + '-' + Math.min(p.total, p.page * p.pageSize) + ' dari ' + p.total + ' data</div><div class="btn-group">';
+    html += '<button class="btn btn-sm btn-outline-secondary" ' + (p.page <= 1 ? 'disabled' : '') + ' onclick="' + onPageFnName + '(' + (p.page - 1) + ')"><i class="bi bi-chevron-left"></i></button>';
+    html += '<button class="btn btn-sm btn-outline-secondary disabled">' + p.page + ' / ' + p.totalPages + '</button>';
+    html += '<button class="btn btn-sm btn-outline-secondary" ' + (p.page >= p.totalPages ? 'disabled' : '') + ' onclick="' + onPageFnName + '(' + (p.page + 1) + ')"><i class="bi bi-chevron-right"></i></button>';
+    html += '</div></div>';
+    return html;
+  }
+</script>

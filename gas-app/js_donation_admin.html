@@ -1,0 +1,79 @@
+<script>
+  // ================== DONASI / CAMPAIGN ==================
+  PAGE_RENDERERS['donation'] = function (containerId) {
+    var crud = new CrudModule({
+      key: 'campaign', title: 'Donasi & Campaign', subtitle: 'Kelola program penggalangan dana masjid',
+      listAction: 'getCampaigns', createAction: 'createCampaign', updateAction: 'updateCampaign', deleteAction: 'deleteCampaign',
+      addLabel: 'Buat Campaign', searchPlaceholder: 'Cari judul campaign...',
+      filters: [{ key: 'status', label: 'Status', options: ['active', 'completed', 'closed'] }],
+      columns: [
+        { key: 'title', label: 'Judul' },
+        { key: 'target_amount', label: 'Target', render: function (r) { return formatRupiah(r.target_amount); } },
+        { key: 'current_amount', label: 'Terkumpul', render: function (r) { return formatRupiah(r.current_amount); } },
+        { key: 'progress', label: 'Progress', render: function (r) {
+            var pct = r.target_amount > 0 ? Math.min(100, Math.round((r.current_amount / r.target_amount) * 100)) : 0;
+            return '<div class="pub-donation-progress" style="width:110px"><div class="pub-donation-fill" style="width:' + pct + '%"></div></div><small>' + pct + '%</small>';
+        }},
+        { key: 'status', label: 'Status', render: function (r) { return statusBadge(r.status); } },
+        { key: 'is_public', label: 'Publik', render: function (r) { return r.is_public ? '<i class="bi bi-check-circle-fill text-success"></i>' : ''; } }
+      ],
+      fields: [
+        { key: 'title', label: 'Judul Campaign', type: 'text', required: true },
+        { key: 'target_amount', label: 'Target Donasi (Rp)', type: 'number', required: true, half: true },
+        { key: 'start_date', label: 'Tanggal Mulai', type: 'date', required: true, half: true, default: todayYmd() },
+        { key: 'end_date', label: 'Tanggal Selesai', type: 'date', half: true },
+        { key: 'status', label: 'Status', type: 'select', half: true, options: ['active', 'completed', 'closed'], default: 'active' },
+        { key: 'description', label: 'Deskripsi', type: 'textarea' },
+        { key: 'cover_url', label: 'URL Gambar Cover (opsional)', type: 'text' },
+        { key: 'is_public', label: 'Tampilkan di Halaman Publik', type: 'checkbox', default: true }
+      ],
+      extraActions: function (row) {
+        return [{ label: 'Lihat Donasi', icon: 'bi-list-ul', onClick: function (r) { openDonationList(r); } }];
+      }
+    });
+    crud.mount(containerId);
+  };
+
+  function openDonationList(campaign) {
+    var modalId = 'donationListModal';
+    var old = document.getElementById(modalId); if (old) old.remove();
+    var html = '<div class="modal fade" id="' + modalId + '"><div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">' +
+      '<div class="modal-header"><h5 class="modal-title">Donasi — ' + escapeHtml(campaign.title) + '</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>' +
+      '<div class="modal-body">' +
+      '<form id="donationAddForm" class="row g-2 mb-3">' +
+      '<div class="col-md-3"><input class="form-control form-control-sm" placeholder="Nama Donatur" id="donorName"></div>' +
+      '<div class="col-md-2"><input class="form-control form-control-sm" type="number" placeholder="Nominal" id="donorAmount" required></div>' +
+      '<div class="col-md-2"><select class="form-select form-select-sm" id="donorMethod"><option value="cash">Cash</option><option value="transfer">Transfer</option><option value="qris">QRIS</option><option value="bank">Bank</option></select></div>' +
+      '<div class="col-md-2 form-check pt-1"><input type="checkbox" class="form-check-input" id="donorAnon"><label class="form-check-label small">Anonim</label></div>' +
+      '<div class="col-md-3"><button type="submit" class="btn btn-mms btn-sm w-100">Catat Donasi</button></div>' +
+      '</form>' +
+      '<div class="table-responsive"><table class="table table-mms mb-0"><thead><tr><th>Tanggal</th><th>Donatur</th><th>Nominal</th><th>Metode</th><th>Status</th></tr></thead><tbody id="donationListBody"></tbody></table></div>' +
+      '</div></div></div></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+    var modal = new bootstrap.Modal(document.getElementById(modalId));
+    modal.show();
+    document.getElementById(modalId).addEventListener('hidden.bs.modal', function () { this.remove(); });
+
+    function load() {
+      apiGet('getDonationsByCampaign', { campaign_id: campaign.id, page: 1, pageSize: 50 }, { silent: true }).then(function (result) {
+        document.getElementById('donationListBody').innerHTML = result.items.length ? result.items.map(function (d) {
+          return '<tr><td>' + formatDateTimeId(d.created_at) + '</td><td>' + escapeHtml(d.donor_name) + '</td><td>' + formatRupiah(d.amount) + '</td><td>' + escapeHtml(d.payment_method) + '</td><td>' + statusBadge(d.status) + '</td></tr>';
+        }).join('') : '<tr><td colspan="5">' + emptyStateHtml('Belum ada donasi') + '</td></tr>';
+      });
+    }
+    document.getElementById('donationAddForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var amount = document.getElementById('donorAmount').value;
+      if (!amount || Number(amount) <= 0) { toastWarning('Nominal donasi wajib diisi.'); return; }
+      apiPost('createDonation', {
+        campaign_id: campaign.id, donor_name: document.getElementById('donorName').value,
+        amount: amount, payment_method: document.getElementById('donorMethod').value,
+        is_anonymous: document.getElementById('donorAnon').checked
+      }, { successMessage: 'Donasi berhasil dicatat.' }).then(function () {
+        document.getElementById('donationAddForm').reset();
+        load();
+      });
+    });
+    load();
+  }
+</script>

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <title>Display — Masjid Management System</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <?!= include('css_variables'); ?>
+  <?!= include('css_display'); ?>
+</head>
+<body class="mms-tv">
+  <div class="tv-screen theme-emerald" id="tvScreen">
+    <div class="tv-header">
+      <div class="tv-header-brand">
+        <img id="tvMosqueLogo" src="https://api.iconify.design/mdi/mosque.svg?color=%23ffffff" alt="logo">
+        <div>
+          <div class="tv-header-name" id="tvMosqueName">Masjid Management System</div>
+          <div class="tv-header-addr" id="tvMosqueAddr"></div>
+        </div>
+      </div>
+      <div class="d-flex align-items-center" style="gap:1.2rem;">
+        <div class="tv-offline-pill" id="tvOfflinePill" style="display:none;"><i class="bi bi-wifi-off"></i> Offline — menggunakan data terakhir</div>
+        <div class="tv-accent" style="font-size:1.4rem;font-weight:800;" id="tvClockHeader">00:00:00</div>
+      </div>
+    </div>
+
+    <div class="tv-body">
+      <div class="tv-main" id="tvMain">
+        <div class="text-center"><div class="spinner-border text-light"></div></div>
+      </div>
+      <div class="tv-side">
+        <h3>Jadwal Shalat</h3>
+        <div id="tvPrayerList"></div>
+      </div>
+    </div>
+
+    <div class="tv-ticker-wrap"><div class="tv-ticker-track" id="tvTickerTrack">Memuat informasi...</div></div>
+  </div>
+
+  <script>var WEB_APP_URL = "<?= webAppUrl ?>";</script>
+  <?!= include('js_utils'); ?>
+  <?!= include('js_api'); ?>
+  <?!= include('js_display_engine'); ?>
+  <script>
+    // Halaman Display tidak memerlukan login (kiosk mode untuk TV masjid).
+    var tvEngine = new DisplayEngine('tvScreen');
+    tvEngine.fetchBundle().then(function () {
+      tvEngine.startClock();
+      tvEngine.startPolling();
+      tvEngine.startHeartbeat();
+    });
+
+    // Dukungan mode ?mode=tv: sembunyikan cursor, minta fullscreen saat interaksi pertama (browser membatasi auto-fullscreen tanpa gesture).
+    var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('mode') === 'tv') {
+      document.body.style.cursor = 'none';
+      document.addEventListener('click', function requestFs() {
+        if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(function () {});
+        document.removeEventListener('click', requestFs);
+      }, { once: true });
+    }
+  </script>
+</body>
+</html>

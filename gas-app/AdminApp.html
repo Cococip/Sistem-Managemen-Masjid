@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <title>Masjid Management System</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <?!= include('css_variables'); ?>
+  <?!= include('css_admin'); ?>
+</head>
+<body>
+  <div class="mms-sidebar-backdrop" id="sidebarBackdrop"></div>
+  <div class="mms-shell">
+    <aside class="mms-sidebar" id="sidebar"><div id="sidebarContent"></div></aside>
+    <div class="mms-main">
+      <header class="mms-topbar">
+        <div class="d-flex align-items-center gap-2">
+          <button class="mms-burger" id="burgerBtn"><i class="bi bi-list"></i></button>
+          <div class="greet"><span id="greetName">Assalamu'alaikum</span><small id="greetRole"></small></div>
+        </div>
+        <div class="mms-topbar-actions">
+          <button class="btn btn-outline-mms btn-sm d-none d-md-inline-flex" id="openDisplayBtn"><i class="bi bi-tv me-1"></i>Open Display</button>
+          <div class="dropdown">
+            <div class="mms-avatar" id="avatarInitial" data-bs-toggle="dropdown"></div>
+            <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+              <li><a class="dropdown-item" href="#" onclick="navigateTo('settings')"><i class="bi bi-gear me-2"></i>Pengaturan</a></li>
+              <li><a class="dropdown-item" href="<?= webAppUrl ?>?page=setup"><i class="bi bi-magic me-2"></i>Setup Wizard</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item text-danger" href="#" id="logoutBtn"><i class="bi bi-box-arrow-right me-2"></i>Keluar</a></li>
+            </ul>
+          </div>
+        </div>
+      </header>
+      <main class="mms-content"><div id="pageContent"></div></main>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>var WEB_APP_URL = "<?= webAppUrl ?>";</script>
+  <?!= include('js_utils'); ?>
+  <?!= include('js_api'); ?>
+  <?!= include('js_auth'); ?>
+  <?!= include('js_charts'); ?>
+  <?!= include('js_crud'); ?>
+  <?!= include('js_app'); ?>
+  <?!= include('js_finance'); ?>
+  <?!= include('js_content'); ?>
+  <?!= include('js_prayer_admin'); ?>
+  <?!= include('js_assets'); ?>
+  <?!= include('js_donation_admin'); ?>
+  <?!= include('js_display_admin'); ?>
+  <?!= include('js_system_admin'); ?>
+  <script>
+    guardAdminPage(initAdminApp);
+    window.addEventListener('hashchange', function () {
+      var page = window.location.hash.replace('#', '');
+      if (page && PAGE_RENDERERS[page]) navigateTo(page);
+    });
+  </script>
+</body>
+</html>

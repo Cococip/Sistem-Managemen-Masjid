@@ -1,0 +1,127 @@
+<style>
+  :root {
+    --primary: #0f9d58;
+    --primary-dark: #0b7a44;
+    --primary-light: #e6f4ec;
+    --secondary: #14532d;
+    --accent: #c9a227;
+    --background: #f7f8f6;
+    --surface: #ffffff;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --danger: #dc2626;
+    --danger-light: #fde8e8;
+    --warning: #d97706;
+    --warning-light: #fef3c7;
+    --info: #2563eb;
+    --info-light: #dbeafe;
+    --success: #0f9d58;
+    --success-light: #e6f4ec;
+    --radius-sm: 8px;
+    --radius: 14px;
+    --radius-lg: 20px;
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+    --shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+    --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.12);
+    --font-sans: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--background);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { text-decoration: none; }
+
+  .text-muted-c { color: var(--muted) !important; }
+  .text-primary-c { color: var(--primary) !important; }
+  .text-accent-c { color: var(--accent) !important; }
+  .bg-primary-c { background: var(--primary) !important; color: #fff; }
+  .bg-surface-c { background: var(--surface) !important; }
+
+  .card-soft {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow .2s ease, transform .2s ease;
+  }
+  .card-soft:hover { box-shadow: var(--shadow); }
+
+  .btn-mms {
+    background: var(--primary);
+    border: none;
+    color: #fff;
+    border-radius: var(--radius-sm);
+    padding: 0.55rem 1.1rem;
+    font-weight: 600;
+    transition: background .15s ease, transform .1s ease;
+  }
+  .btn-mms:hover { background: var(--primary-dark); color: #fff; }
+  .btn-mms:active { transform: scale(0.98); }
+  .btn-outline-mms {
+    background: transparent;
+    border: 1.5px solid var(--primary);
+    color: var(--primary);
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 1rem;
+    font-weight: 600;
+  }
+  .btn-outline-mms:hover { background: var(--primary-light); color: var(--primary-dark); }
+
+  .badge-soft {
+    border-radius: 999px;
+    padding: 0.3em 0.75em;
+    font-weight: 600;
+    font-size: 0.75rem;
+    display: inline-block;
+  }
+  .badge-success { background: var(--success-light); color: var(--primary-dark); }
+  .badge-danger { background: var(--danger-light); color: var(--danger); }
+  .badge-warning { background: var(--warning-light); color: var(--warning); }
+  .badge-info { background: var(--info-light); color: var(--info); }
+  .badge-muted { background: #f1f2f4; color: var(--muted); }
+
+  .fade-in { animation: mmsFadeIn .35s ease; }
+  @keyframes mmsFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  .skeleton {
+    background: linear-gradient(90deg, #eef0f2 25%, #e4e7ea 37%, #eef0f2 63%);
+    background-size: 400% 100%;
+    animation: mmsSkeleton 1.4s ease infinite;
+    border-radius: 6px;
+  }
+  @keyframes mmsSkeleton { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+  .focus-ring:focus-visible { outline: 3px solid var(--primary-light); outline-offset: 2px; }
+
+  /* Toast & loading overlay: dipakai js_utils.html (showToast/showLoading) di SEMUA halaman
+     (Login, Public, SetupWizard, AdminApp), jadi style-nya wajib ada di sini (css_variables),
+     bukan di css_admin yang cuma di-include AdminApp.html. */
+  .mms-toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 2000; display: flex; flex-direction: column; gap: .5rem; }
+  .mms-toast {
+    min-width: 280px; max-width: 360px; background: var(--surface); border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-lg); padding: .8rem 1rem; display: flex; gap: .65rem; align-items: flex-start;
+    border-left: 4px solid var(--primary); animation: mmsFadeIn .25s ease; color: var(--text);
+  }
+  .mms-toast.toast-success { border-color: var(--success); }
+  .mms-toast.toast-error { border-color: var(--danger); }
+  .mms-toast.toast-warning { border-color: var(--warning); }
+  .mms-toast.toast-info { border-color: var(--info); }
+  .mms-toast .icon { font-size: 1.2rem; }
+  .mms-toast .msg { font-size: .86rem; flex: 1; }
+
+  .mms-overlay-loading {
+    position: fixed; inset: 0; background: rgba(255,255,255,0.65); z-index: 1900;
+    display: flex; align-items: center; justify-content: center; backdrop-filter: blur(1px);
+  }
+</style>

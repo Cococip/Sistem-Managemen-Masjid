@@ -1,0 +1,99 @@
+<script>
+  /**
+   * api.js — helper terpusat untuk memanggil Web App Apps Script (doGet/doPost).
+   * WEB_APP_URL diinjeksikan oleh server lewat template (<?= webAppUrl ?>) di setiap halaman.
+   */
+  var MMS_API_TIMEOUT_MS = 20000;
+
+  function apiFetchWithTimeout_(url, options) {
+    return new Promise(function (resolve, reject) {
+      var timedOut = false;
+      var timer = setTimeout(function () {
+        timedOut = true;
+        reject(new Error('Koneksi timeout. Periksa jaringan Anda.'));
+      }, MMS_API_TIMEOUT_MS);
+
+      fetch(url, options).then(function (resp) {
+        clearTimeout(timer);
+        if (timedOut) return;
+        resolve(resp);
+      }).catch(function (err) {
+        clearTimeout(timer);
+        if (timedOut) return;
+        reject(err);
+      });
+    });
+  }
+
+  function apiGet(action, params, opts) {
+    opts = opts || {};
+    var query = Object.assign({}, params || {}, { action: action });
+    if (!opts.noAuth) query.token = getAuthToken();
+    var url = (typeof WEB_APP_URL !== 'undefined' ? WEB_APP_URL : '') + '?' + qs(query);
+
+    if (!opts.silent) showLoading();
+    return apiFetchWithTimeout_(url, { method: 'GET' })
+      .then(function (resp) { return resp.json(); })
+      .then(function (json) {
+        if (!json.success) {
+          if (!opts.silentError) toastError(json.message);
+          if (json.message && json.message.indexOf('Sesi tidak valid') !== -1) {
+            handleSessionExpired();
+          }
+          throw new Error(json.message);
+        }
+        return json.data;
+      })
+      .catch(function (err) {
+        if (!opts.silentError && err.message && err.message.indexOf('Sesi tidak valid') === -1) {
+          toastError(err.message || 'Terjadi kesalahan koneksi.');
+        }
+        throw err;
+      })
+      .finally(function () { if (!opts.silent) hideLoading(); });
+  }
+
+  function apiPost(action, payload, opts) {
+    opts = opts || {};
+    var body = {
+      action: action,
+      token: opts.noAuth ? undefined : getAuthToken(),
+      id: payload && payload.id !== undefined ? payload.id : undefined,
+      data: payload || {}
+    };
+    var url = (typeof WEB_APP_URL !== 'undefined' ? WEB_APP_URL : '');
+
+    if (!opts.silent) showLoading();
+    return apiFetchWithTimeout_(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body)
+    })
+      .then(function (resp) { return resp.json(); })
+      .then(function (json) {
+        if (!json.success) {
+          if (!opts.silentError) toastError(json.message);
+          if (json.message && json.message.indexOf('Sesi tidak valid') !== -1) {
+            handleSessionExpired();
+          }
+          throw new Error(json.message);
+        }
+        if (opts.successMessage !== false) toastSuccess(opts.successMessage || json.message);
+        return json.data;
+      })
+      .catch(function (err) {
+        if (!opts.silentError && err.message && err.message.indexOf('Sesi tidak valid') === -1) {
+          toastError(err.message || 'Terjadi kesalahan koneksi.');
+        }
+        throw err;
+      })
+      .finally(function () { if (!opts.silent) hideLoading(); });
+  }
+
+  function handleSessionExpired() {
+    clearAuthSession();
+    setTimeout(function () {
+      mmsTopNavigate(WEB_APP_URL + '?page=login');
+    }, 800);
+  }
+</script>

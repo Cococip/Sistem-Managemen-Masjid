@@ -1,0 +1,224 @@
+<script>
+  var PUBLIC_VIEWS = {};
+  var PUBLIC_SETTINGS_CACHE = null;
+
+  function pubClock() {
+    var now = new Date();
+    return String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
+  }
+
+  function navigatePublic(view) {
+    document.querySelectorAll('.pub-nav-link').forEach(function (l) { l.classList.toggle('active', l.getAttribute('data-view') === view); });
+    var content = document.getElementById('pubContent');
+    content.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-success"></div></div>';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    (PUBLIC_VIEWS[view] || PUBLIC_VIEWS['home'])('pubContent');
+    history.replaceState(null, '', WEB_APP_URL + '?page=public&view=' + view);
+  }
+
+  function initPublicSite(initialView) {
+    apiGet('getPublicSettings', {}, { noAuth: true, silent: true, silentError: true }).then(function (s) {
+      PUBLIC_SETTINGS_CACHE = s;
+      if (s.mosque_name) { document.getElementById('pubBrandName').textContent = s.mosque_name; document.getElementById('pubFooterName').textContent = s.mosque_name; }
+      if (s.logo_url) document.getElementById('pubBrandLogo').src = s.logo_url;
+      document.getElementById('pubFooterText').textContent = s.footer_text || '';
+      document.getElementById('pubFooterAddr').textContent = s.mosque_address || '';
+      document.getElementById('pubFooterContact').innerHTML = (s.mosque_phone ? '<i class="bi bi-telephone me-1"></i>' + escapeHtml(s.mosque_phone) + '<br>' : '') + (s.mosque_email ? '<i class="bi bi-envelope me-1"></i>' + escapeHtml(s.mosque_email) : '');
+    }).catch(function () {});
+
+    document.querySelectorAll('.pub-nav-link').forEach(function (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        navigatePublic(link.getAttribute('data-view'));
+        var navCollapse = document.getElementById('pubNavCollapse');
+        if (navCollapse && navCollapse.classList.contains('show')) bootstrap.Collapse.getOrCreateInstance(navCollapse).hide();
+      });
+    });
+
+    navigatePublic(initialView || 'home');
+  }
+
+  // ================== HOME ==================
+  PUBLIC_VIEWS['home'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML =
+      '<section class="pub-hero"><h1 id="pubHeroName">Masjid Management System</h1><p id="pubHeroTagline">Menjadi pusat ibadah, ilmu, dan pelayanan umat.</p></section>' +
+      '<div class="container"><div class="pub-clock-card row g-4 align-items-center">' +
+      '<div class="col-md-4 text-center border-end"><div class="pub-clock-time" id="pubHomeClock">--:--:--</div><div class="pub-clock-date" id="pubHomeDate"></div></div>' +
+      '<div class="col-md-8"><div class="row g-2" id="pubHomePrayers"></div></div>' +
+      '</div></div>' +
+
+      '<section class="pub-section container">' +
+      '<div class="row g-4">' +
+      '<div class="col-lg-6"><h2 class="pub-section-title"><i class="bi bi-megaphone me-1"></i>Pengumuman Terbaru</h2><div class="pub-section-sub">Informasi terkini untuk jamaah</div><div id="pubHomeAnnouncements" class="d-flex flex-column gap-2"></div></div>' +
+      '<div class="col-lg-6"><h2 class="pub-section-title"><i class="bi bi-calendar-event me-1"></i>Agenda Mendatang</h2><div class="pub-section-sub">Kegiatan yang akan datang</div><div id="pubHomeEvents" class="d-flex flex-column gap-2"></div></div>' +
+      '</div></section>' +
+
+      '<section class="pub-section container">' +
+      '<h2 class="pub-section-title"><i class="bi bi-eye me-1"></i>Transparansi Keuangan</h2><div class="pub-section-sub">Ringkasan kas masjid bulan ini</div>' +
+      '<div class="row g-3" id="pubHomeTransparency"></div></section>' +
+
+      '<section class="pub-section container">' +
+      '<h2 class="pub-section-title"><i class="bi bi-heart me-1"></i>Donasi Berjalan</h2><div class="pub-section-sub">Mari berpartisipasi dalam program masjid</div>' +
+      '<div class="row g-3" id="pubHomeCampaigns"></div></section>';
+
+    if (PUBLIC_SETTINGS_CACHE) {
+      document.getElementById('pubHeroName').textContent = PUBLIC_SETTINGS_CACHE.mosque_name || 'Masjid';
+      document.getElementById('pubHeroTagline').textContent = PUBLIC_SETTINGS_CACHE.mosque_description || "Menjadi pusat ibadah, ilmu, dan pelayanan umat.";
+    }
+
+    function tickClock() { document.getElementById('pubHomeClock').textContent = pubClock(); document.getElementById('pubHomeDate').textContent = formatDateFullId(new Date().toISOString()); }
+    tickClock();
+    window.__mmsPublicClockInterval && clearInterval(window.__mmsPublicClockInterval);
+    window.__mmsPublicClockInterval = setInterval(tickClock, 1000);
+
+    apiGet('getPrayerSchedule', {}, { noAuth: true, silent: true }).then(function (s) {
+      apiGet('getNextPrayer', {}, { noAuth: true, silent: true }).then(function (next) {
+        var prayers = [['imsak', 'Imsak'], ['subuh', 'Subuh'], ['terbit', 'Terbit'], ['dzuhur', 'Dzuhur'], ['ashar', 'Ashar'], ['maghrib', 'Maghrib'], ['isya', 'Isya']];
+        document.getElementById('pubHomePrayers').innerHTML = prayers.map(function (p) {
+          var isNext = next && next.name.toLowerCase() === p[0];
+          return '<div class="col-3 col-md-3"><div class="pub-prayer-pill' + (isNext ? ' active' : '') + '"><div class="name">' + p[1] + '</div><div class="time">' + (s[p[0]] || '--:--') + '</div></div></div>';
+        }).join('');
+      });
+    });
+
+    apiGet('getPublicAnnouncements', { pageSize: 4 }, { noAuth: true, silent: true }).then(function (r) {
+      document.getElementById('pubHomeAnnouncements').innerHTML = r.items.length ? r.items.map(function (a) {
+        return '<div class="pub-card"><span class="badge-soft badge-info mb-1">' + escapeHtml(a.category) + '</span><div class="fw-bold">' + escapeHtml(a.title) + '</div><div class="text-muted-c small">' + formatDateId(a.start_date) + '</div></div>';
+      }).join('') : emptyStateHtml('Belum ada pengumuman');
+    });
+
+    apiGet('getUpcomingEvents', { limit: 4 }, { noAuth: true, silent: true }).then(function (events) {
+      document.getElementById('pubHomeEvents').innerHTML = events.length ? events.map(function (e) {
+        return '<div class="pub-card"><span class="badge-soft badge-info mb-1">' + escapeHtml(e.category) + '</span><div class="fw-bold">' + escapeHtml(e.title) + '</div><div class="text-muted-c small">' + formatDateFullId(e.date) + ' &middot; ' + escapeHtml(e.start_time || '') + '</div></div>';
+      }).join('') : emptyStateHtml('Belum ada agenda mendatang');
+    });
+
+    apiGet('getPublicTransparency', { pageSize: 1 }, { noAuth: true, silent: true }).then(function (d) {
+      document.getElementById('pubHomeTransparency').innerHTML =
+        '<div class="col-md-4"><div class="pub-card text-center"><div class="text-muted-c small">Saldo Saat Ini</div><div class="pub-transparansi-balance text-primary-c">' + formatRupiah(d.saldo) + '</div></div></div>' +
+        '<div class="col-md-4"><div class="pub-card text-center"><div class="text-muted-c small">Pemasukan Bulan Ini</div><div class="fs-4 fw-bold">' + formatRupiah(d.incomeThisMonth) + '</div></div></div>' +
+        '<div class="col-md-4"><div class="pub-card text-center"><div class="text-muted-c small">Pengeluaran Bulan Ini</div><div class="fs-4 fw-bold">' + formatRupiah(d.expenseThisMonth) + '</div></div></div>' +
+        '<div class="col-12 text-center mt-2"><a href="#" class="btn btn-outline-mms" onclick="navigatePublic(\'transparansi\');return false;">Lihat Detail Transparansi</a></div>';
+    });
+
+    apiGet('getPublicCampaigns', { pageSize: 2 }, { noAuth: true, silent: true }).then(function (r) {
+      document.getElementById('pubHomeCampaigns').innerHTML = r.items.length ? r.items.map(campaignCardHtml).join('') + '<div class="col-12 text-center"><a href="#" class="btn btn-outline-mms" onclick="navigatePublic(\'donasi\');return false;">Lihat Semua Campaign</a></div>' : emptyStateHtml('Belum ada campaign donasi berjalan');
+    });
+  };
+
+  function campaignCardHtml(c) {
+    return '<div class="col-md-6"><div class="pub-card"><div class="fw-bold mb-1">' + escapeHtml(c.title) + '</div>' +
+      '<div class="text-muted-c small mb-2">' + escapeHtml((c.description || '').substring(0, 110)) + '</div>' +
+      '<div class="d-flex justify-content-between small mb-1"><span>' + formatRupiah(c.current_amount) + '</span><span class="text-muted-c">/ ' + formatRupiah(c.target_amount) + '</span></div>' +
+      '<div class="pub-donation-progress"><div class="pub-donation-fill" style="width:' + c.progress_percent + '%"></div></div>' +
+      '<div class="text-end small mt-1 text-primary-c fw-bold">' + c.progress_percent + '%</div></div></div>';
+  }
+
+  // ================== JADWAL SHALAT ==================
+  PUBLIC_VIEWS['jadwal-shalat'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<section class="pub-section container">' +
+      '<h2 class="pub-section-title">Jadwal Shalat</h2><div class="pub-section-sub">Jadwal shalat harian untuk wilayah masjid ini</div>' +
+      '<div class="row g-3" id="jadwalContent"></div></section>';
+    apiGet('getPrayerSchedule', {}, { noAuth: true, silent: true }).then(function (s) {
+      var prayers = [['imsak', 'Imsak'], ['subuh', 'Subuh'], ['terbit', 'Terbit'], ['dzuhur', 'Dzuhur'], ['ashar', 'Ashar'], ['maghrib', 'Maghrib'], ['isya', 'Isya']];
+      document.getElementById('jadwalContent').innerHTML =
+        '<div class="col-12 mb-2"><div class="pub-card text-center"><div class="fw-bold fs-5">' + formatDateFullId(s.date) + '</div></div></div>' +
+        prayers.map(function (p) { return '<div class="col-6 col-md-3"><div class="pub-prayer-pill"><div class="name">' + p[1] + '</div><div class="time">' + (s[p[0]] || '--:--') + '</div></div></div>'; }).join('');
+    });
+  };
+
+  // ================== PENGUMUMAN ==================
+  PUBLIC_VIEWS['pengumuman'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<section class="pub-section container"><h2 class="pub-section-title">Pengumuman</h2><div class="pub-section-sub">Seluruh pengumuman aktif untuk jamaah</div><div id="pengumumanList" class="row g-3"></div></section>';
+    apiGet('getPublicAnnouncements', { pageSize: 30 }, { noAuth: true, silent: true }).then(function (r) {
+      document.getElementById('pengumumanList').innerHTML = r.items.length ? r.items.map(function (a) {
+        return '<div class="col-md-6"><div class="pub-card"><span class="badge-soft badge-info mb-1">' + escapeHtml(a.category) + '</span>' +
+          (a.is_pinned ? '<span class="badge-soft badge-warning mb-1 ms-1">Pinned</span>' : '') +
+          '<div class="fw-bold fs-5">' + escapeHtml(a.title) + '</div><div class="text-muted-c small mb-2">' + formatDateId(a.start_date) + '</div>' +
+          '<div>' + escapeHtml(a.content) + '</div></div></div>';
+      }).join('') : '<div class="col-12">' + emptyStateHtml('Belum ada pengumuman') + '</div>';
+    });
+  };
+
+  // ================== AGENDA ==================
+  PUBLIC_VIEWS['agenda'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<section class="pub-section container"><h2 class="pub-section-title">Agenda Kegiatan</h2><div class="pub-section-sub">Jadwal kegiatan masjid yang akan datang</div><div id="agendaList" class="row g-3"></div></section>';
+    apiGet('getPublicEvents', { pageSize: 30 }, { noAuth: true, silent: true }).then(function (r) {
+      document.getElementById('agendaList').innerHTML = r.items.length ? r.items.map(function (e) {
+        return '<div class="col-md-4"><div class="pub-card h-100"><span class="badge-soft badge-info mb-1">' + escapeHtml(e.category) + '</span>' +
+          '<div class="fw-bold">' + escapeHtml(e.title) + '</div>' +
+          '<div class="text-muted-c small mt-1"><i class="bi bi-calendar3 me-1"></i>' + formatDateFullId(e.date) + ' &middot; ' + escapeHtml(e.start_time || '') + '</div>' +
+          (e.location ? '<div class="text-muted-c small"><i class="bi bi-geo-alt me-1"></i>' + escapeHtml(e.location) + '</div>' : '') +
+          (e.speaker ? '<div class="text-muted-c small"><i class="bi bi-person me-1"></i>' + escapeHtml(e.speaker) + '</div>' : '') + '</div></div>';
+      }).join('') : '<div class="col-12">' + emptyStateHtml('Belum ada agenda') + '</div>';
+    });
+  };
+
+  // ================== TRANSPARANSI ==================
+  PUBLIC_VIEWS['transparansi'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<section class="pub-section container"><h2 class="pub-section-title">Transparansi Keuangan</h2>' +
+      '<div class="pub-section-sub">Laporan keuangan masjid yang bersifat terbuka untuk umum</div>' +
+      '<div class="row g-3 mb-4" id="transStats"></div>' +
+      '<div class="row g-3 mb-4"><div class="col-lg-6"><div class="pub-card"><h6 class="fw-bold">Grafik Pemasukan vs Pengeluaran</h6><div style="height:260px"><canvas id="transChart"></canvas></div></div></div>' +
+      '<div class="col-lg-6"><div class="pub-card"><h6 class="fw-bold mb-2">Ringkasan</h6><div id="transSummary"></div></div></div></div>' +
+      '<div class="pub-card"><h6 class="fw-bold mb-2">Daftar Transaksi Publik</h6><div class="table-responsive"><table class="table table-mms mb-0"><thead><tr><th>Tanggal</th><th>Jenis</th><th>Kategori</th><th>Nominal</th><th>Keterangan</th></tr></thead><tbody id="transTableBody"></tbody></table></div></div></section>';
+
+    apiGet('getPublicTransparency', { pageSize: 50 }, { noAuth: true, silent: true }).then(function (d) {
+      document.getElementById('transStats').innerHTML =
+        '<div class="col-md-4"><div class="pub-card text-center"><div class="text-muted-c small">Saldo</div><div class="pub-transparansi-balance text-primary-c">' + formatRupiah(d.saldo) + '</div></div></div>' +
+        '<div class="col-md-4"><div class="pub-card text-center"><div class="text-muted-c small">Pemasukan Bulan Ini</div><div class="fs-4 fw-bold">' + formatRupiah(d.incomeThisMonth) + '</div></div></div>' +
+        '<div class="col-md-4"><div class="pub-card text-center"><div class="text-muted-c small">Pengeluaran Bulan Ini</div><div class="fs-4 fw-bold">' + formatRupiah(d.expenseThisMonth) + '</div></div></div>';
+
+      document.getElementById('transSummary').innerHTML =
+        '<div class="d-flex justify-content-between border-bottom py-2"><span>Surplus / Defisit Bulan Ini</span><b class="' + (d.surplus >= 0 ? 'text-primary-c' : 'text-danger') + '">' + formatRupiah(d.surplus) + '</b></div>' +
+        '<div class="text-muted-c small mt-2">Data ini hanya menampilkan transaksi yang ditandai "Publik" oleh bendahara. Untuk laporan lengkap silakan hubungi pengurus masjid.</div>';
+
+      renderDoughnutChart('transChart', ['Pemasukan', 'Pengeluaran'], [d.incomeThisMonth, d.expenseThisMonth]);
+
+      var items = d.transactions.items || [];
+      document.getElementById('transTableBody').innerHTML = items.length ? items.map(function (t) {
+        return '<tr><td>' + formatDateId(t.date) + '</td><td>' + (t.type === 'income' ? '<span class="badge-soft badge-success">Pemasukan</span>' : '<span class="badge-soft badge-danger">Pengeluaran</span>') + '</td>' +
+          '<td>' + escapeHtml(t.category) + '</td><td>' + formatRupiah(t.amount) + '</td><td>' + escapeHtml(t.description || '-') + '</td></tr>';
+      }).join('') : '<tr><td colspan="5">' + emptyStateHtml('Belum ada transaksi publik') + '</td></tr>';
+    });
+  };
+
+  // ================== DONASI ==================
+  PUBLIC_VIEWS['donasi'] = function (containerId) {
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<section class="pub-section container"><h2 class="pub-section-title">Donasi</h2><div class="pub-section-sub">Program penggalangan dana yang sedang berjalan</div><div id="donasiList" class="row g-3"></div></section>';
+    apiGet('getPublicCampaigns', { pageSize: 30 }, { noAuth: true, silent: true }).then(function (r) {
+      document.getElementById('donasiList').innerHTML = r.items.length ? r.items.map(campaignCardHtml).join('') : '<div class="col-12">' + emptyStateHtml('Belum ada campaign donasi') + '</div>';
+    });
+  };
+
+  // ================== TENTANG ==================
+  PUBLIC_VIEWS['tentang'] = function (containerId) {
+    var s = PUBLIC_SETTINGS_CACHE || {};
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<section class="pub-section container"><h2 class="pub-section-title">Tentang Kami</h2>' +
+      '<div class="pub-card"><p>' + escapeHtml(s.mosque_description || '') + '</p>' +
+      '<div class="row g-3 mt-2">' +
+      '<div class="col-md-6"><div class="text-muted-c small">Alamat</div><div class="fw-semibold">' + escapeHtml(s.mosque_address || '-') + '</div></div>' +
+      '<div class="col-md-3"><div class="text-muted-c small">Arah Kiblat</div><div class="fw-semibold">' + escapeHtml(s.qibla_direction || '-') + '&deg; dari Utara</div></div>' +
+      '<div class="col-md-3"><div class="text-muted-c small">Zona Waktu</div><div class="fw-semibold">' + escapeHtml(s.timezone || '-') + '</div></div>' +
+      '</div></div></section>';
+  };
+
+  // ================== KONTAK ==================
+  PUBLIC_VIEWS['kontak'] = function (containerId) {
+    var s = PUBLIC_SETTINGS_CACHE || {};
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<section class="pub-section container"><h2 class="pub-section-title">Kontak</h2><div class="pub-section-sub">Hubungi pengurus masjid</div>' +
+      '<div class="row g-3">' +
+      '<div class="col-md-4"><div class="pub-card text-center"><i class="bi bi-geo-alt fs-2 text-primary-c"></i><div class="fw-semibold mt-2">Alamat</div><div class="text-muted-c small">' + escapeHtml(s.mosque_address || '-') + '</div></div></div>' +
+      '<div class="col-md-4"><div class="pub-card text-center"><i class="bi bi-telephone fs-2 text-primary-c"></i><div class="fw-semibold mt-2">Telepon</div><div class="text-muted-c small">' + escapeHtml(s.mosque_phone || '-') + '</div></div></div>' +
+      '<div class="col-md-4"><div class="pub-card text-center"><i class="bi bi-envelope fs-2 text-primary-c"></i><div class="fw-semibold mt-2">Email</div><div class="text-muted-c small">' + escapeHtml(s.mosque_email || '-') + '</div></div></div>' +
+      '</div></section>';
+  };
+</script>
